@@ -1,12 +1,11 @@
 ---
 plugin: amazon.aws.aws_ec2
 regions:
-  - us-east-1                
+  - us-east-1
 filters:
-  "tag:Role": "webserver"       # Only pick webserver nodes
-keyed_groups:
-  - key: tags.Name
-    prefix: name_
+  "tag:Name": "webserver*"      # Only pick instances with Name = webserver tag
 hostnames:
-  - private-ip-address        # Use private IP for ansible connectivity
+  - private-ip-address       # Use private IP for SSH connectivity
+groups:
+  webservers: "'webserver' in tags.Name"  # Creates a group called 'webservers'
 

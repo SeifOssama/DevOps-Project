@@ -3,7 +3,8 @@
   hosts: webservers
   become: true
   gather_facts: true
-
+  vars_files:
+    - ../group_vars/websevers.yml
   tasks:
     - name: Update system packages
       apt:

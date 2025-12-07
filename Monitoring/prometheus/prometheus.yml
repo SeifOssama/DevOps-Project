@@ -2,20 +2,28 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
+#--------- Node Exporter ---------#
   - job_name: "node-exporter"
-    static_configs:
-      - targets: ["98.81.120.194:9100"]
-        labels:
-          instance: "Webserver1"
-      - targets: ["35.170.61.87:9100"]
-        labels:
-          instance: "Webserver2"
+    ec2_sd_configs:
+      - region: us-east-1
+        port: 9100
+        filters:
+          - name: "tag:Name"
+            values: ["webserver*"]
+    relabel_configs:
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: host
+
+
+#--------- cAdvisor ---------#
 
   - job_name: "cadvisor"
-    static_configs:
-      - targets: ["98.81.120.194:8080"]
-        labels:
-          docker_host: "Webserver1"
-      - targets: ["35.170.61.87:8080"]
-        labels:
-          docker_host: "Webserver2"
+    ec2_sd_configs:
+      - region: us-east-1
+        port: 8080
+        filters:
+          - name: "tag:Name"
+            values: ["webserver*"]
+    relabel_configs:
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: host

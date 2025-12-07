@@ -1,52 +1,71 @@
 #!/bin/bash
 
 #Hold Kernel updates
-apt-mark hold linux-image-generic linux-headers-generic
+apt-mark hold $(uname -r)
 
-# Install Apache and PHP
-apt update -y && apt upgrade -y
-apt install -y apache2 php python3 ansible boto3 botocore
 
-# Start and enable Apache
-systemctl start apache2
-systemctl enable apache2
+# ----------------------------
+# Phase 1: System update
+# ----------------------------
+apt update -y
 
-# Fetch instance metadata
-AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || echo "Not Assigned")
-LOCAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+# ----------------------------
+# Phase 2: Docker Installation
+# ----------------------------
 
-# Create a PHP script with metadata
-cat <<EOP > /var/www/html/index.php
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Instance Details</title>
-</head>
-<body>
-   <div align="center">
-	<h1> Made by Seif Yakout </h1>
-	<h1>Welcome to the Control Node Instance</h1>
-    <h2>Instance Details:</h2>
-    <ul>
-        <li>Availability Zone: <?php echo '$AZ'; ?></li>
-        <li>Instance ID: <?php echo '$INSTANCE_ID'; ?></li>
-        <li>Public IP: <?php echo '$PUBLIC_IP'; ?></li>
-        <li>Local IP: <?php echo '$LOCAL_IP'; ?></li>
-    </ul>
-    </div>
-</body>
-</html>
-EOP
+# Install Docker & Docker Compose
+# Add Docker's official GPG key:
+apt install ca-certificates curl
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
 
-# Set permissions
-chmod 644 /var/www/html/index.php
+# Add the repository to Apt sources:
+tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
 
-# Restart Apache
-systemctl restart apache2
+apt update
+
+apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+systemctl start docker 
+systemctl enable docker
+
+getent group docker || groupadd docker
+
+usermod -aG docker ubuntu
+
+newgrp docker
+
+
+echo "====== Docker Installed Successfully! ======"
+
+# ----------------------------
+# Phase 3: Ansible Installation 
+# ----------------------------
+apt install -y software-properties-common
+add-apt-repository --yes --update ppa:ansible/ansible
+apt install -y ansible python3 python3-pip unzip 
+
 systemctl  daemon-reload
+
+# Install Python packages idempotently
+pip3 install --upgrade pip
+pip3 install --upgrade boto3 botocore
+ansible-galaxy collection install amazon.aws
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install --update
+aws --version
+rm -rf awscliv2.zip aws
+
 
 # Clone the repository
 cd /home/ubuntu
 git clone https://github.com/SeifOssama/DevOps-Project
+chown -R ubuntu:ubuntu DevOps-Project

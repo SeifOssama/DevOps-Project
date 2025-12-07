@@ -12,5 +12,5 @@ output "webservers_public_ips" {
 
 
 output "webservers_private_ips" {
-    value = module.webserver.*.webservers_public_ip
+    value = module.webserver.*.webservers_private_ip
 }
