@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["98.81.120.194:9100"]
+        labels:
+          instance: "Webserver1"
+      - targets: ["35.170.61.87:9100"]
+        labels:
+          instance: "Webserver2"
+
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["98.81.120.194:8080"]
+        labels:
+          docker_host: "Webserver1"
+      - targets: ["35.170.61.87:8080"]
+        labels:
+          docker_host: "Webserver2"
