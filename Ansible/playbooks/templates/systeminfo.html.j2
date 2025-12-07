@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Information - {{ ansible_hostname }}</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: linear-gradient(to bottom right, #eef2f3, #dfe9f3);
+            color: #333;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            padding: 50px 20px;
+            text-align: center;
+            color: white;
+            border-bottom-left-radius: 40px;
+            border-bottom-right-radius: 40px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+        }
+
+        .hero h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 600;
+        }
+
+        .hero p {
+            margin-top: 10px;
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            margin-bottom: 25px;
+            border-radius: 14px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+            transition: 0.2s ease-in-out;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+
+        @media (max-width: 768px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.4rem;
+            color: #2c3e50;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        th {
+            background: #f1f1f1;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 22px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+            transition: 0.2s;
+        }
+
+        .back-link:hover {
+            background-color: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        footer {
+            text-align: center;
+            padding: 25px;
+            margin-top: 40px;
+            font-size: 0.9rem;
+            color: #555;
+        }
+
+        footer span {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <div class="hero">
+        <h1>System Information</h1>
+        <p>Hostname: {{ ansible_hostname }}</p>
+    </div>
+
+    <div class="container">
+
+        <div class="grid-2">
+
+            <div class="card">
+                <h2>System Details</h2>
+                <table>
+                    <tr><th>Hostname</th><td>{{ ansible_hostname }}</td></tr>
+                    <tr><th>FQDN</th><td>{{ ansible_fqdn }}</td></tr>
+                    <tr><th>OS</th><td>{{ ansible_distribution }} {{ ansible_distribution_version }}</td></tr>
+                    <tr><th>Kernel</th><td>{{ ansible_kernel }}</td></tr>
+                    <tr><th>Architecture</th><td>{{ ansible_architecture }}</td></tr>
+                    <tr><th>Uptime</th><td>{{ ansible_uptime_seconds // 3600 }} hours</td></tr>
+                </table>
+            </div>
+
+            <div class="card">
+                <h2>Hardware</h2>
+                <table>
+                    <tr><th>CPU Cores</th><td>{{ ansible_processor_vcpus }}</td></tr>
+                    <tr><th>Memory (MB)</th><td>{{ ansible_memtotal_mb }}</td></tr>
+                    <tr><th>Swap (MB)</th><td>{{ ansible_swaptotal_mb }}</td></tr>
+                    <tr><th>Product Name</th><td>{{ ansible_product_name | default('N/A') }}</td></tr>
+                    <tr><th>Virtualization</th><td>{{ ansible_virtualization_type | default('N/A') }}</td></tr>
+                </table>
+            </div>
+
+            <div class="card">
+                <h2>Network</h2>
+                <table>
+                    <tr><th>Private IP</th><td>{{ ansible_default_ipv4.address }}</td></tr>
+                    <tr><th>Gateway</th><td>{{ ansible_default_ipv4.gateway }}</td></tr>
+                    <tr><th>Interface</th><td>{{ ansible_default_ipv4.interface }}</td></tr>
+                    <tr><th>MAC Address</th><td>{{ ansible_default_ipv4.macaddress }}</td></tr>
+                    <tr><th>DNS Servers</th><td>{{ ansible_dns.nameservers | join(', ') }}</td></tr>
+                </table>
+            </div>
+
+            <div class="card">
+                <h2>Storage</h2>
+                <table>
+                    <tr><th>Device</th><th>Size</th><th>Used</th><th>Available</th><th>Mount</th></tr>
+                    {% for mount in ansible_mounts %}
+                    <tr>
+                        <td>{{ mount.device }}</td>
+                        <td>{{ (mount.size_total/1024/1024/1024) | round(2) }} GB</td>
+                        <td>{{ ((mount.size_total - mount.size_available)/1024/1024/1024) | round(2) }} GB</td>
+                        <td>{{ (mount.size_available/1024/1024/1024) | round(2) }} GB</td>
+                        <td>{{ mount.mount }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+
+        </div>
+
+        <div class="card">
+            <h2>Environment Variables</h2>
+            <table>
+                {% for key, value in ansible_env.items() %}
+                <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+
+    <footer>
+        Powered by <span>Ansible Automation</span> • System Report
+    </footer>
+
+</body>
+</html>

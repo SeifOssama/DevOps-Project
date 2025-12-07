@@ -1,0 +1,12 @@
+---
+# Common variables for all hosts
+ansible_python_interpreter: /usr/bin/python3
+
+# Web server configuration
+web_server_port: 80
+web_server_document_root: /var/www/html
+web_server_user: www-data
+web_server_group: www-data
+
+# Application configuration
+app_name: "Ansible Web Application"

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }}</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: linear-gradient(to bottom right, #eef2f3, #dfe9f3);
+            color: #333;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            padding: 60px 20px;
+            text-align: center;
+            color: white;
+            border-bottom-left-radius: 40px;
+            border-bottom-right-radius: 40px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+
+        .hero h1 {
+            margin: 0;
+            font-size: 2.8rem;
+            font-weight: 600;
+        }
+
+        .hero p {
+            margin-top: 10px;
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .ansible-logo {
+            font-weight: 700;
+            color: #ff4b4b;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            margin-bottom: 25px;
+            border-radius: 14px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+            transition: 0.2s ease-in-out;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+        }
+
+        .card h2 {
+            margin-top: 0;
+            font-size: 1.5rem;
+            color: #2c3e50;
+        }
+
+        ul {
+            line-height: 1.8;
+            padding-left: 20px;
+        }
+
+        a {
+            color: #2980b9;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 40px;
+            font-size: 0.9rem;
+            color: #555;
+        }
+
+        footer span {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="hero">
+        <h1>{{ app_name }}</h1>
+        <p>Automated Deployment with <span class="ansible-logo">Ansible</span> ⚙️</p>
+    </div>
+
+    <div class="container">
+
+        <div class="card">
+            <h2>Server Information</h2>
+            <ul>
+                <li><strong>Hostname:</strong> {{ ansible_hostname }}</li>
+                <li><strong>Operating System:</strong> {{ ansible_distribution }} {{ ansible_distribution_version }}</li>
+                <li><strong>Architecture:</strong> {{ ansible_architecture }}</li>
+                <li><strong>Private IP:</strong> {{ ansible_default_ipv4.address }}</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Ansible Demo Features</h2>
+            <ul>
+                <li>⚙️ Package Management (apt)</li>
+                <li>🚀 Service Management (systemd)</li>
+                <li>📁 File Management</li>
+                <li>🔧 Jinja2 Templating</li>
+                <li>📚 Variables & Facts</li>
+                <li>🔄 Handlers</li>
+                <li>🏷️ Tags</li>
+                <li>🔍 Conditionals</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Links</h2>
+            <ul>
+                <li><a href="/systeminfo.html">System Information</a></li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <em>This page was generated on {{ ansible_date_time.iso8601 }}  
+            by Ansible running on {{ ansible_hostname }}</em>
+        </div>
+
+    </div>
+
+    <footer>
+        Powered by <span>Ansible Automation</span> • DevOps Demo
+    </footer>
+
+</body>
+</html>

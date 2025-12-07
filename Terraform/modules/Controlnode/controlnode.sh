@@ -5,7 +5,7 @@ apt-mark hold linux-image-generic linux-headers-generic
 
 # Install Apache and PHP
 apt update -y && apt upgrade -y
-apt install -y apache2 php python3 ansible
+apt install -y apache2 php python3 ansible boto3 botocore
 
 # Start and enable Apache
 systemctl start apache2
@@ -46,3 +46,7 @@ chmod 644 /var/www/html/index.php
 # Restart Apache
 systemctl restart apache2
 systemctl  daemon-reload
+
+# Clone the repository
+cd /home/ubuntu
+git clone https://github.com/SeifOssama/DevOps-Project
