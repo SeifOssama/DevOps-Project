@@ -1,0 +1,11 @@
+groups:
+  - name: CPU_Usage_Alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{job="node_exporter", mode="idle"}[30s]))) > 80
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "High CPU usage detected on {{ $labels.instance }}"
+          description: "CPU usage on instance {{ $labels.instance }} has been above 80% for the last 30 seconds."

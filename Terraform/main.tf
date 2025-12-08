@@ -50,6 +50,13 @@ module "controlnode_sg" {
     ip_protocol                  = "tcp"
     to_port                      = 9090
     }
+    alertmanager={
+    cidr_ipv4                    = "0.0.0.0/0"
+    referenced_security_group_id = null
+    from_port                    = 9093
+    ip_protocol                  = "tcp"
+    to_port                      = 9093
+    }
     grafana={
     cidr_ipv4                    = "0.0.0.0/0"
     referenced_security_group_id = null

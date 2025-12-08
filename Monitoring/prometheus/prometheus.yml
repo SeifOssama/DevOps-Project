@@ -1,6 +1,24 @@
 global:
   scrape_interval: 15s
 
+rule_files:
+  - rules.yml
+
+alerting:
+  alertmanagers:
+    - ec2_sd_configs:
+        - region: us-east-1
+          port: 9093
+          filters:
+            - name: "tag:Name"
+              values: ["webserver*"]
+      relabel_configs:
+        - source_labels: [__meta_ec2_tag_Name]
+          target_label: host
+
+
+
+
 scrape_configs:
 #--------- Node Exporter ---------#
   - job_name: "node-exporter"
