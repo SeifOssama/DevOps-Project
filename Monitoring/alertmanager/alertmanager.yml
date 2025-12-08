@@ -1,0 +1,4 @@
+route:
+  receiver: 'email'
+  repeat_interval: 1h
+  group_by: [alertname]

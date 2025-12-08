@@ -4,6 +4,7 @@ networks:
 volumes:
   prometheus_data: {}
   grafana_data: {}
+  alertmanager_data: {}
 services:
   prometheus:
     image: prom/prometheus:latest
@@ -30,7 +31,7 @@ services:
       - "9093:9093"
     restart: unless-stopped
     volumes:
-      - ./alertmanager/alertmanager.yml:etc/alertmanager/alertmanager.yml
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
       - alertmanager_data:/data
     networks:
       - monitoring

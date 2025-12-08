@@ -52,7 +52,7 @@
     - name: Create systeminfo.html with system information
       template:
         src: systeminfo.html.j2
-        dest: "{{ web_server_document_root }}/info.html"
+        dest: "{{ web_server_document_root }}/systeminfo.html"
         owner: "{{ web_server_user }}"
         group: "{{ web_server_group }}"
         mode: "0644"
