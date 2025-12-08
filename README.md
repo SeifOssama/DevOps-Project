@@ -1,7 +1,7 @@
 # 🚀AWS Multi-Node Observability & Automation Stack🚀
 
 
-A Complete Infrastructure, Monitoring, and Automation Implementation
+A Complete AWS Infrastructure, Monitoring Stack, and Configuration Management Implementation
 
 ## 🪄 Project Overview
 A minimal DevOps automation project showcasing core **Ansible** functionality, fully automated **AWS infrastructure provisioning using Terraform**, and a complete monitoring & alerting stack powered by **Prometheus**, **Alertmanager**, and **Grafana**.
@@ -61,25 +61,25 @@ A simple verification script that checks:
 - cAdvisor
 
 ### ⚙️ Ansible Features Demonstrated
-1. Dynamic Inventory Management using aws_ec2 plugin 
-2. Variables
+1. **Dynamic Inventory Management** using aws_ec2 plugin 
+2. **Variables**
   - Group variables
   - Host variables
   - Dynamic facts from remote machines
-3. Modules Used
+3. **Modules Used:**
   - *apt*  — Package installation
   - *systemd* — Service management
   -  *file* — Directory & permissions
   - *template* — Jinja2 templating
   - *uri* — HTTP checks
-4. Templates
+4. **Templates**
   - Jinja2 templates with facts + dynamic variables
   - Custom HTML system info page
-5. Handlers: Automated service restarts when config changes
-6. Tags: Selective execution of tasks
-7. Facts: Used to dynamically update templates
-8. Conditionals: Used for OS checks, validation, and dynamic logic
-9. Error Handling: ignore_errors: yes for optional tasks
+5. **Handlers:** Automated service restarts when config changes
+6. **Tags:** Selective execution of tasks
+7. **Facts:** Used to dynamically update templates
+8. **Conditionals:** Used for OS checks, validation, and dynamic logic
+9. **Error Handling:** ignore_errors: yes for optional tasks
 
 ### 📈 Prometheus
 **Prometheus Features**
@@ -104,7 +104,7 @@ Pre-built dashboards:
 
 ### ✍🏻 Script
 ![Script](./Screenshots/script1.png)
-![Script](./Screenshots/scripts2.png)
+![Script](./Screenshots/script2.png)
 
 ### 📊 Dashboards
 ![Dashboard](./Screenshots/instance-dashboard.png)
