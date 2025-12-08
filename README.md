@@ -60,6 +60,27 @@ A simple verification script that checks:
 - Node Exporter
 - cAdvisor
 
+### ⚙️ Ansible Features Demonstrated
+1. Dynamic Inventory Management using aws_ec2 plugin 
+2. Variables
+  - Group variables
+  - Host variables
+  - Dynamic facts from remote machines
+3. Modules Used
+  - *apt*  — Package installation
+  - *systemd* — Service management
+  -  *file* — Directory & permissions
+  - *template* — Jinja2 templating
+  - *uri* — HTTP checks
+4. Templates
+  - Jinja2 templates with facts + dynamic variables
+  - Custom HTML system info page
+5. Handlers: Automated service restarts when config changes
+6. Tags: Selective execution of tasks
+7. Facts: Used to dynamically update templates
+8. Conditionals: Used for OS checks, validation, and dynamic logic
+9. Error Handling: ignore_errors: yes for optional tasks
+
 ### 📈 Prometheus
 **Prometheus Features**
 - EC2 Service Discovery
@@ -77,33 +98,30 @@ Pre-built dashboards:
 - Node Exporter Dashboard
 - Docker Containers Dashboard
 
-### ⚙️ Ansible Features Demonstrated
-1. Dynamic Inventory Management using aws_ec2 plugin 
-2. Variables
-  - Group variables
-  - Host variables
-  - Dynamic facts from remote machines
-3. Modules Used
-  - *apt*  — Package installation
-  - *systemd* — Service management
-  -  *file* — Directory & permissions
-  - *template* — Jinja2 templating
-  - *uri* — HTTP checks
-4. Templates
-  - Jinja2 templates with facts + dynamic variables
-  - Custom HTML system info page
-5. Handlers
-  - Automated service restarts when config changes
-6. Tags
-  - Selective execution of tasks
-7. Facts
-  - Used to dynamically update templates
-8. Conditionals
-  - Used for OS checks, validation, and dynamic logic
-9. Error Handling
-  - ignore_errors: yes for optional tasks
 
-### 📂 Project Structure
+
+## 📷 Project Screenshots
+
+### ✍🏻 Script
+![Script](./Screenshots/script1.png)
+![Script](./Screenshots/scripts2.png)
+
+### 📊 Dashboards
+![Dashboard](./Screenshots/instance-dashboard.png)
+![Dashboard](./Screenshots/docker-dashboard.png)
+
+### 🌐 Webserver 
+![Webserver](./Screenshots/webserver-homepage.png)
+![Webserver](./Screenshots/webserver-systeminfo.png)
+
+### Prometheus Targets
+![Targets](./Screenshots/prometheus-target.png)
+### 🚨 Alarm
+![Alarm](./Screenshots/inactive-alarm.png)
+![Alarm](./Screenshots/pending-alarm.png)
+![Alarm](./Screenshots/fire-alarm.png)
+
+## 📂 Project Structure
 ```
 DevOps-Project
 ├── Ansible
@@ -165,11 +183,11 @@ DevOps-Project
 ---
 
 
-### ⚠️ Challenges Faced
+## ⚠️ Challenges Faced
 - Implementing Dynamic Inventory for Ansible for the first time
 - Configuring Prometheus EC2 Service Discovery
 - Jinja2 templating with dynamic facts
 - Coordinating interactions between Terraform → Ansible → Docker
 
-### 🚀 Future Work
+## 🚀 Future Work
 - Integrate CI/CD pipelines
