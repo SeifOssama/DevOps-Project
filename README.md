@@ -115,7 +115,7 @@ Pre-built dashboards:
 ![Webserver](./Screenshots/webserver-systeminfo.png)
 
 ### Prometheus Targets
-![Targets](./Screenshots/prometheus-target.png)
+![Targets](./Screenshots/prometheus-targets.png)
 ### 🚨 Alarm
 ![Alarm](./Screenshots/inactive-alarm.png)
 ![Alarm](./Screenshots/pending-alarm.png)
