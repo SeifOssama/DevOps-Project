@@ -3,22 +3,22 @@ plugin: amazon.aws.aws_ec2
 regions:
   - us-east-1
 
-# Don't filter - discover all running instances
+# Filter for webserver and monitoring-node instances
 filters:
-  instance-state-name: running
+  "tag:Name":
+    - "webserver*"
+    - "monitoring-node"
 
-# Use public IP for SSH from GitHub Actions
+# Use public IP for SSH connectivity from GitHub Actions
 hostnames:
   - public-ip-address
 
-# Create groups based on EC2 tags
-keyed_groups:
-  # Group by Name tag
-  - key: tags.Name
-    prefix: tag_Name
-    separator: "_"
+# Create groups based on instance tags
+groups:
+  webservers: "'webserver' in tags.Name"
+  monitoring: "tags.Name == 'monitoring-node'"
 
 # Compose variables for Ansible
 compose:
   ansible_host: public_ip_address
-  ansible_user: "'ubuntu'"
+  ansible_user: ubuntu

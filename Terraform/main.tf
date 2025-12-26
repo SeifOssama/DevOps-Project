@@ -20,7 +20,7 @@ module "controlnode_sg" {
   source      = "./modules/SecurityGroups"
   vpc-ID      = module.vpc.vpc_id
   name        = "controlnode_sg"
-  description = "This is Control Node Security Group"
+  description = "This is Monitoring Node Security Group"
   ingress_rules = {
     icmp = {
       cidr_ipv4                    = "0.0.0.0/0"
@@ -68,7 +68,7 @@ module "controlnode_sg" {
 
   }
   tags = {
-    Name = "ControlNode-SG"
+    Name = "MonitoringNode-SG"
   }
 }
 

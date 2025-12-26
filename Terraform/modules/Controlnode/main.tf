@@ -10,16 +10,16 @@ resource "aws_instance" "controlnode" {
   user_data                   = file("./modules/Controlnode/controlnode.sh")
   associate_public_ip_address = true
   tags = {
-    Name = "Control Node"
-    Role = "control"
+    Name = "monitoring-node"
+    Role = "monitoring"
   }
 
 }
 
 
-# IAM Role for Control Node
+# IAM Role for Monitoring Node
 resource "aws_iam_role" "control_node_role" {
-  name = "control-node-role"
+  name = "monitoring-node-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -37,7 +37,7 @@ resource "aws_iam_role" "control_node_role" {
 
 # Policy to allow EC2 describe calls 
 resource "aws_iam_role_policy" "control_node_policy" {
-  name = "control-node-policy"
+  name = "monitoring-node-policy"
   role = aws_iam_role.control_node_role.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -56,6 +56,6 @@ resource "aws_iam_role_policy" "control_node_policy" {
 
 # Instance profile to attach the role to EC2
 resource "aws_iam_instance_profile" "control_node_profile" {
-  name = "control-node-profile"
+  name = "monitoring-node-profile"
   role = aws_iam_role.control_node_role.name
 }
