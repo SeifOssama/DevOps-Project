@@ -19,6 +19,13 @@ variable "availability_zone_a" {
   default     = "us-east-1a"
 }
 
+# SSH Public Key for EC2 instances
+variable "ssh_public_key" {
+  description = "SSH public key for EC2 instances"
+  type        = string
+  sensitive   = true
+}
+
 # GitHub Repository (for reference)
 variable "github_repo_url" {
   description = "GitHub repository URL"

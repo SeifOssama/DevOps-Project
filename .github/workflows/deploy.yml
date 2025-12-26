@@ -220,32 +220,6 @@ jobs:
           
           echo "::endgroup::"
       
-      - name: 🔑 Phase 1 - Ensure EC2 Key Pair Exists
-        run: |
-          echo "::group::EC2 Key Pair Setup"
-          
-          KEY_NAME="deployer-key"
-          
-          # Check if key pair exists
-          if aws ec2 describe-key-pairs --key-names "$KEY_NAME" --region $AWS_REGION 2>/dev/null; then
-            echo "✅ Key pair already exists: $KEY_NAME"
-          else
-            echo "📝 Creating key pair: $KEY_NAME"
-            # Import the public key from GitHub secrets
-            # Save the raw OpenSSH public key to a temp file
-            # AWS CLI with file:// prefix will automatically base64-encode it
-            echo "${{ secrets.SSH_PUBLIC_KEY }}" > /tmp/pubkey.pub
-            aws ec2 import-key-pair \
-              --key-name "$KEY_NAME" \
-              --public-key-material file:///tmp/pubkey.pub \
-              --region $AWS_REGION
-            rm -f /tmp/pubkey.pub
-            
-            echo "✅ Key pair created successfully"
-          fi
-          
-          echo "::endgroup::"
-      
       - name: 🏗️ Phase 1 - Terraform Init
         run: |
           echo "::group::Terraform Initialization"
@@ -285,15 +259,13 @@ jobs:
         run: |
           echo "::group::Terraform Plan"
           cd Terraform
-          terraform plan -out=tfplan
+          terraform plan -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" -out=tfplan
           echo "::endgroup::"
       
       - name: 🏗️ Phase 1 - Terraform Apply
         run: |
           echo "::group::Terraform Apply"
           cd Terraform
-          # Import blocks in backend.tf will automatically import existing resources
-          # This makes the deployment idempotent - safe to run multiple times
           terraform apply -auto-approve tfplan
           echo "::endgroup::"
       

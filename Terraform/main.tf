@@ -139,8 +139,9 @@ module "webserver" {
 }
 
 
-# EC2 Key Pair - managed by GitHub Actions, referenced here as data source
-data "aws_key_pair" "deployer" {
-  key_name = "deployer-key"
+# EC2 Key Pair - managed by Terraform
+resource "aws_key_pair" "deployer" {
+  key_name   = "deployer-key"
+  public_key = var.ssh_public_key
 }
 
