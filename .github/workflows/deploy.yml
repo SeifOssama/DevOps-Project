@@ -1,12 +1,7 @@
 name: Deploy Infrastructure & Services
 
 on:
-  workflow_dispatch:  # Manual trigger for experimentation
-    inputs:
-      skip_destroy:
-        description: 'Skip destroy confirmation'
-        required: false
-        default: 'false'
+  workflow_dispatch:  # Manual trigger
   # Uncomment after testing to enable on push
   # push:
   #   branches:
