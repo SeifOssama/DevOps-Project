@@ -209,10 +209,10 @@ jobs:
               -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
               -auto-approve
             
-            # Restore original provider.tf with backend
-            mv provider.tf.backup provider.tf
-            
             echo "✅ Existing resources imported and backend infrastructure verified"
+            
+            # Restore original provider.tf with backend (AFTER apply completes)
+            mv provider.tf.backup provider.tf
           else
             echo ""
             echo "📦 Creating new backend infrastructure..."
