@@ -313,61 +313,41 @@ jobs:
         run: |
           echo "::group::Ansible Installation"
           
-          # Install Ansible
+          # ----------------------------
+          # Ansible Installation
+          # ----------------------------
           sudo apt-get update
           sudo apt-get install -y software-properties-common
           sudo add-apt-repository --yes --update ppa:ansible/ansible
-          sudo apt-get install -y ansible python3-pip python3 unzip
+          sudo apt-get install -y ansible python3 python3-pip unzip
           
-          # Verify Ansible installation
-          ansible --version
-          echo ""
+          sudo systemctl daemon-reload
           
-          # Find Ansible's Python interpreter
-          ANSIBLE_PYTHON=$(ansible --version | grep "python version" | awk '{print $4}' | cut -d'/' -f1-4)/python3
-          echo "📍 Ansible Python interpreter: $ANSIBLE_PYTHON"
-          
-          # Install Python packages in Ansible's Python environment
-          echo "Installing boto3 and botocore in Ansible's Python environment..."
-          if [ -f "$ANSIBLE_PYTHON" ]; then
-            sudo $ANSIBLE_PYTHON -m pip install --upgrade pip
-            sudo $ANSIBLE_PYTHON -m pip install --upgrade boto3 botocore
-          else
-            # Fallback: install in system Python and hope Ansible can access it
-            echo "⚠️  Could not find Ansible's Python, installing in system Python"
-            pip3 install --upgrade pip
-            pip3 install --upgrade boto3 botocore
-          fi
-          
-          # Install AWS collection
+          # Install Python packages idempotently
+          pip3 install --upgrade pip
+          pip3 install --upgrade boto3 botocore
           ansible-galaxy collection install amazon.aws
           
           # Install AWS CLI
-          echo "Installing AWS CLI..."
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip -q awscliv2.zip
           sudo ./aws/install --update
           aws --version
           rm -rf awscliv2.zip aws
           
-          # Verify boto3/botocore installation
-          echo ""
-          echo "Verifying boto3/botocore installation..."
-          if [ -f "$ANSIBLE_PYTHON" ]; then
-            $ANSIBLE_PYTHON -c "import boto3; import botocore; print(f'✅ boto3 version: {boto3.__version__}'); print(f'✅ botocore version: {botocore.__version__}')" || {
-              echo "❌ Failed to import boto3/botocore in Ansible's Python"
-              exit 1
-            }
-          else
-            python3 -c "import boto3; import botocore; print(f'✅ boto3 version: {boto3.__version__}'); print(f'✅ botocore version: {botocore.__version__}')" || {
-              echo "❌ Failed to import boto3/botocore in system Python"
-              exit 1
-            }
-          fi
+          # Verify installation
+          ansible --version
           
           echo ""
           echo "✅ Ansible installed successfully"
           echo "::endgroup::"
+      
+      # Set environment variable to use system Python for all Ansible commands
+      # This ensures Ansible can find boto3/botocore installed via pip3
+      - name: 🔧 Phase 2 - Configure Ansible Python Interpreter
+        run: |
+          echo "ANSIBLE_PYTHON_INTERPRETER=/usr/bin/python3" >> $GITHUB_ENV
+          echo "✅ Configured Ansible to use system Python interpreter"
       
       - name: 📝 Phase 2 - Configure AWS Dynamic Inventory
         run: |
