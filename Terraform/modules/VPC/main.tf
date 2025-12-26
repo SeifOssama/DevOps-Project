@@ -1,11 +1,16 @@
 # === VPC Creation === #
 
 resource "aws_vpc" "YAKOUT-VPC" {
-  cidr_block = var.vpc_cidr_block
-  enable_dns_support = true
+  cidr_block           = var.vpc_cidr_block
+  enable_dns_support   = true
   enable_dns_hostnames = true
   tags = {
     Name = "SEIF-VPC"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [tags_all]
   }
 }
 
@@ -13,9 +18,9 @@ resource "aws_vpc" "YAKOUT-VPC" {
 # === Public Subnets Creation === #
 
 resource "aws_subnet" "public-subnet1" {
-  vpc_id = aws_vpc.YAKOUT-VPC.id
-  cidr_block = var.public-subnet1_cidr
-  availability_zone = var.availability_zone_a
+  vpc_id                  = aws_vpc.YAKOUT-VPC.id
+  cidr_block              = var.public-subnet1_cidr
+  availability_zone       = var.availability_zone_a
   map_public_ip_on_launch = true
   tags = {
     Name = "Public-Subnet1"
