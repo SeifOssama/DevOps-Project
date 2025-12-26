@@ -5,6 +5,15 @@ terraform {
       source  = "hashicorp/aws"
     }
   }
+
+  # Remote State Backend Configuration
+  backend "s3" {
+    bucket         = "devops-project-terraform-state-724772082485"
+    key            = "devops-project/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-state-locks"
+    encrypt        = true
+  }
 }
 
 
