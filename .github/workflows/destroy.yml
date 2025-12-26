@@ -94,19 +94,19 @@ jobs:
             
             # Create temporary provider without backend
             cat > provider_temp.tf <<'EOF'
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
+          terraform {
+            required_providers {
+              aws = {
+                source  = "hashicorp/aws"
+                version = "~> 5.0"
+              }
+            }
+          }
 
-provider "aws" {
-  region = var.region
-}
-EOF
+          provider "aws" {
+            region = var.region
+          }
+          EOF
             
             mv provider_temp.tf provider.tf
             
