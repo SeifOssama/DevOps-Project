@@ -314,20 +314,48 @@ jobs:
           echo "::group::Ansible Installation"
           
           # ----------------------------
-          # Phase 3: Ansible Installation 
+          # Phase 2: Ansible Installation (Ubuntu)
           # ----------------------------
+          
+          # Install Ansible and dependencies
           sudo apt install -y software-properties-common
           sudo add-apt-repository --yes --update ppa:ansible/ansible
           sudo apt install -y ansible python3 python3-pip unzip 
           
           sudo systemctl daemon-reload
           
+          # ----------------------------
           # Install Python packages idempotently
-          sudo pip3 install --upgrade pip
-          sudo pip3 install --upgrade boto3 botocore
-          sudo ansible-galaxy collection install amazon.aws
+          # ----------------------------
+          # Note: Skip pip upgrade - causes conflicts with debian-installed pip
           
+          # Install boto3 if not present
+          if ! python3 -c "import boto3" 2>/dev/null; then
+            echo "📦 Installing boto3..."
+            sudo pip3 install boto3 --break-system-packages
+          else
+            echo "✅ boto3 already installed"
+          fi
+          
+          # Install botocore if not present
+          if ! python3 -c "import botocore" 2>/dev/null; then
+            echo "📦 Installing botocore..."
+            sudo pip3 install botocore --break-system-packages
+          else
+            echo "✅ botocore already installed"
+          fi
+          
+          # Install ansible-galaxy collection if not present
+          if ! ansible-galaxy collection list | grep -q "amazon.aws"; then
+            echo "📦 Installing ansible-galaxy amazon.aws collection..."
+            sudo ansible-galaxy collection install amazon.aws
+          else
+            echo "✅ ansible-galaxy amazon.aws collection already installed"
+          fi
+          
+          # ----------------------------
           # Install AWS CLI
+          # ----------------------------
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip awscliv2.zip
           sudo ./aws/install --update
