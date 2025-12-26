@@ -716,3 +716,60 @@ jobs:
           echo "✅ Deployment workflow completed successfully!"
           echo "   All phases passed validation."
           echo "   Infrastructure is ready for use."
+  
+  # ============================================
+  # CLEANUP JOB: Runs only on failure
+  # ============================================
+  cleanup_on_failure:
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: failure()
+    name: Cleanup Failed Deployment
+    
+    steps:
+      - name: 📋 Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: 🔐 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: 🏗️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+      
+      - name: ⚠️ Cleanup Warning
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║           ⚠️  DEPLOYMENT FAILED - CLEANING UP  ⚠️          ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "The deployment failed. Automatically destroying any created resources..."
+          echo "This prevents orphaned resources and AWS charges."
+      
+      - name: 🧹 Terraform Destroy
+        run: |
+          cd Terraform
+          terraform init
+          
+          # Try to destroy whatever was created
+          terraform destroy \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -auto-approve || {
+              echo "⚠️  Terraform destroy failed or nothing to destroy"
+              echo "   You may need to check AWS Console for orphaned resources"
+            }
+      
+      - name: ✅ Cleanup Complete
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║              ✅ CLEANUP COMPLETED                          ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "Any partially created infrastructure has been destroyed."
+          echo "You can safely re-run the deployment workflow."
