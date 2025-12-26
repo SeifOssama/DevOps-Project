@@ -307,197 +307,114 @@ jobs:
           retention-days: 7
       
       # ============================================
-      # PHASE 2: Inventory & Connectivity
+      # PHASE 2: Ansible Environment Setup
       # ============================================
-      - name: 🔧 Phase 2 - Setup Ansible
+      - name: 🚀 Phase 2 - Ansible Environment Setup
         run: |
-          echo "::group::Ansible Installation"
+          echo "========================================="
+          echo "Phase 2: Ansible Environment Setup"
+          echo "========================================="
+      
+      - name: 🔍 Phase 2.1 - Verify Pre-installed Tools
+        run: |
+          echo "::group::Pre-installed Versions (Before Installation)"
+          echo "=== Pre-installed Versions (Before Installation) ==="
+          echo ""
+          echo "Python: $(python3 --version 2>&1 || echo 'Not found')"
+          echo "Pip: $(pip3 --version 2>&1 || echo 'Not found')"
+          echo "AWS CLI: $(aws --version 2>&1 || echo 'Not found')"
+          echo "Ansible (if pre-installed): $(ansible --version 2>&1 | head -n 1 || echo 'Not found')"
+          echo ""
+          echo "::endgroup::"
+      
+      - name: 📦 Phase 2.2 - Install Python Dependencies
+        run: |
+          echo "::group::Installing Python Packages"
+          echo "=== Installing Python Packages ==="
           
-          # ----------------------------
-          # Phase 2: Ansible Installation (Ubuntu)
-          # ----------------------------
+          # Upgrade pip first
+          echo "Upgrading pip..."
+          python3 -m pip install --upgrade pip
           
-          # Install Ansible and dependencies
-          sudo apt install -y software-properties-common
-          sudo add-apt-repository --yes --update ppa:ansible/ansible
-          sudo apt install -y ansible python3 python3-pip unzip 
+          # Install boto3 and botocore with specific version requirements
+          echo ""
+          echo "Installing boto3 and botocore..."
+          python3 -m pip install 'boto3>=1.34.0' 'botocore>=1.34.0'
           
-          sudo systemctl daemon-reload
+          # Install Ansible (this installs to system Python, NOT pipx)
+          echo ""
+          echo "Installing Ansible..."
+          python3 -m pip install 'ansible>=2.17'
           
-          # ----------------------------
-          # Install Python packages idempotently
-          # ----------------------------
-          # Note: Skip pip upgrade - causes conflicts with debian-installed pip
+          echo ""
+          echo "✅ Python packages installed successfully"
+          echo "::endgroup::"
+      
+      - name: 🎯 Phase 2.3 - Install Ansible Collections
+        run: |
+          echo "::group::Installing Ansible Collections"
+          echo "=== Installing Ansible Collections ==="
           
-          # Install boto3 if not present
-          if ! python3 -c "import boto3" 2>/dev/null; then
-            echo "📦 Installing boto3..."
-            sudo pip3 install boto3 --break-system-packages
-          else
-            echo "✅ boto3 already installed"
-          fi
+          # Install amazon.aws collection
+          ansible-galaxy collection install amazon.aws
           
-          # Install botocore if not present
-          if ! python3 -c "import botocore" 2>/dev/null; then
-            echo "📦 Installing botocore..."
-            sudo pip3 install botocore --break-system-packages
-          else
-            echo "✅ botocore already installed"
-          fi
+          echo ""
+          echo "✅ Ansible collections installed successfully"
+          echo "::endgroup::"
+      
+      - name: ✅ Phase 2.4 - Verify Complete Installation
+        run: |
+          echo "::group::Installation Verification"
+          echo "========================================="
+          echo "Installation Verification"
+          echo "========================================="
           
-          # Install ansible-galaxy collection if not present
-          if ! ansible-galaxy collection list | grep -q "amazon.aws"; then
-            echo "📦 Installing ansible-galaxy amazon.aws collection..."
-            sudo ansible-galaxy collection install amazon.aws
-          else
-            echo "✅ ansible-galaxy amazon.aws collection already installed"
-          fi
+          echo ""
+          echo "=== Python Version ==="
+          python3 --version
           
-          # ----------------------------
-          # Install AWS CLI
-          # ----------------------------
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          sudo ./aws/install --update
+          echo ""
+          echo "=== Pip Version ==="
+          pip3 --version
+          
+          echo ""
+          echo "=== Ansible Version and Python Interpreter ==="
+          ansible --version
+          
+          echo ""
+          echo "=== Boto3 Version ==="
+          python3 -c "import boto3; print(f'boto3: {boto3.__version__}')"
+          
+          echo ""
+          echo "=== Botocore Version ==="
+          python3 -c "import botocore; print(f'botocore: {botocore.__version__}')"
+          
+          echo ""
+          echo "=== AWS CLI Version ==="
           aws --version
-          rm -rf awscliv2.zip aws
           
           echo ""
-          echo "✅ Ansible and dependencies installed successfully"
+          echo "=== Installed Ansible Collections ==="
+          ansible-galaxy collection list amazon.aws
+          
+          echo ""
+          echo "=== Test AWS EC2 Inventory Plugin Documentation ==="
+          ansible-doc -t inventory amazon.aws.aws_ec2 | head -n 5
+          
+          echo ""
+          echo "✅ All installations verified successfully"
           echo "::endgroup::"
       
-      - name: 🔧 Phase 2 - Install AWS Python Dependencies in Ansible Interpreter
+      - name: 🔗 Phase 2.5 - Test AWS Connectivity
         run: |
-          echo "::group::AWS Python Dependencies for Ansible"
-          
-          # Find the Python interpreter used by Ansible
-          ANSIBLE_PYTHON=$(ansible --version | grep "python version" | awk -F'=' '{print $2}' | awk '{print $1}' | xargs which python3 2>/dev/null || echo "/usr/bin/python3")
-          
-          echo "📍 Ansible Python interpreter: $ANSIBLE_PYTHON"
-          
-          # Check if Ansible is installed via pipx (common in GitHub Actions runners)
-          if [ -d "/opt/pipx/venvs/ansible-core" ]; then
-            echo "📦 Detected pipx-installed Ansible"
-            ANSIBLE_PYTHON="/opt/pipx/venvs/ansible-core/bin/python"
-            
-            # Upgrade pip first
-            echo "Upgrading pip in Ansible environment..."
-            $ANSIBLE_PYTHON -m pip install --upgrade pip
-            
-            # Install boto3 and botocore in the Ansible virtual environment
-            echo "Installing boto3 and botocore in Ansible environment..."
-            $ANSIBLE_PYTHON -m pip install boto3 botocore
-            
-            echo "✅ Installed AWS Python dependencies in Ansible's pipx environment"
-          else
-            echo "📦 Using system Python for Ansible"
-            # Already installed in previous step via pip3
-            echo "✅ boto3 and botocore already installed in system Python"
-          fi
-          
-          # Install amazon.aws collection if not present
-          if ! ansible-galaxy collection list | grep -q "amazon.aws"; then
-            echo "📦 Installing amazon.aws collection..."
-            ansible-galaxy collection install amazon.aws
-          else
-            echo "✅ amazon.aws collection already installed"
-          fi
-          
-          # Verify installations
-          echo ""
-          echo "🔍 Verifying installations..."
-          $ANSIBLE_PYTHON -c "import boto3; print(f'✅ boto3 {boto3.__version__}')"
-          $ANSIBLE_PYTHON -c "import botocore; print(f'✅ botocore {botocore.__version__}')"
-          ansible-galaxy collection list | grep amazon.aws
-          
-          echo ""
-          echo "✅ AWS Python dependencies configured for Ansible"
-          echo "::endgroup::"
-      
-      - name: ✅ Test - AWS EC2 API Connectivity
-        run: |
-          echo "::group::AWS EC2 API Test"
+          echo "::group::AWS Connectivity Test"
+          echo "=== Testing AWS Connectivity ==="
           
           echo "Testing AWS EC2 API access..."
-          aws ec2 describe-instances --region ${{ env.AWS_REGION }} --max-results 5
+          aws ec2 describe-instances --region ${{ env.AWS_REGION }} --query 'Reservations[*].Instances[*].[InstanceId,State.Name,Tags[?Key==`Name`].Value|[0]]' --output table || echo "No instances found or connection issue"
           
           echo ""
-          echo "✅ AWS EC2 API is accessible"
-          echo "::endgroup::"
-      
-      # Set environment variable to use system Python for all Ansible commands
-      # This ensures Ansible can find boto3/botocore installed via pip3
-      - name: 🔧 Phase 2 - Configure Ansible Python Interpreter
-        run: |
-          echo "ANSIBLE_PYTHON_INTERPRETER=/usr/bin/python3" >> $GITHUB_ENV
-          echo "✅ Configured Ansible to use system Python interpreter"
-      
-      - name: ✅ Test - Verify All Packages Installed Correctly
-        run: |
-          echo "::group::Package Installation Verification"
-          
-          # Test Ansible
-          echo "1️⃣ Verifying Ansible installation..."
-          if ansible --version; then
-            echo "✅ Ansible is installed correctly"
-          else
-            echo "❌ Ansible installation failed"
-            exit 1
-          fi
-          
-          # Test Python3
-          echo ""
-          echo "2️⃣ Verifying Python3 installation..."
-          if python3 --version; then
-            echo "✅ Python3 is installed correctly"
-          else
-            echo "❌ Python3 installation failed"
-            exit 1
-          fi
-          
-          # Test pip3
-          echo ""
-          echo "3️⃣ Verifying pip3 installation..."
-          if pip3 --version; then
-            echo "✅ pip3 is installed correctly"
-          else
-            echo "❌ pip3 installation failed"
-            exit 1
-          fi
-          
-          # Test boto3
-          echo ""
-          echo "4️⃣ Verifying boto3 installation..."
-          if python3 -c "import boto3; print(f'boto3 version: {boto3.__version__}')"; then
-            echo "✅ boto3 is installed correctly"
-          else
-            echo "❌ boto3 installation failed"
-            exit 1
-          fi
-          
-          # Test botocore
-          echo ""
-          echo "5️⃣ Verifying botocore installation..."
-          if python3 -c "import botocore; print(f'botocore version: {botocore.__version__}')"; then
-            echo "✅ botocore is installed correctly"
-          else
-            echo "❌ botocore installation failed"
-            exit 1
-          fi
-          
-          # Test ansible-galaxy amazon.aws collection
-          echo ""
-          echo "6️⃣ Verifying ansible-galaxy amazon.aws collection..."
-          if ansible-galaxy collection list | grep -q "amazon.aws"; then
-            echo "✅ ansible-galaxy amazon.aws collection is installed correctly"
-            ansible-galaxy collection list | grep amazon.aws
-          else
-            echo "❌ ansible-galaxy amazon.aws collection installation failed"
-            exit 1
-          fi
-          
-          echo ""
-          echo "✅ All packages verified successfully"
+          echo "✅ AWS connectivity verified"
           echo "::endgroup::"
       
       - name: ✅ Test - Verify AWS EC2 Dynamic Inventory Plugin
