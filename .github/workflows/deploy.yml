@@ -126,26 +126,38 @@ jobs:
           else
             echo "📦 Creating backend infrastructure..."
             
-            # Temporarily disable backend for initial setup
-            sed -i 's/backend "s3" {/# backend "s3" {/g' provider.tf
-            sed -i 's/^  bucket/  # bucket/g' provider.tf
-            sed -i 's/^  key/  # key/g' provider.tf
-            sed -i 's/^  region/  # region/g' provider.tf
-            sed -i 's/^  dynamodb_table/  # dynamodb_table/g' provider.tf
-            sed -i 's/^  encrypt/  # encrypt/g' provider.tf
-            sed -i 's/^  }/  # }/g' provider.tf
+            # Create a temporary provider.tf without backend
+            cat > provider_temp.tf << 'EOF'
+          terraform {
+            required_providers {
+              aws = {
+                source  = "hashicorp/aws"
+              }
+            }
+          }
+
+          provider "aws" {
+            region = "us-east-1"
+          }
+          EOF
             
+            # Backup original provider.tf and use temporary one
+            mv provider.tf provider.tf.backup
+            mv provider_temp.tf provider.tf
+            
+            # Initialize and create backend resources
             terraform init
-            terraform apply -target=aws_s3_bucket.terraform_state \
-                          -target=aws_s3_bucket_versioning.terraform_state \
-                          -target=aws_s3_bucket_server_side_encryption_configuration.terraform_state \
-                          -target=aws_s3_bucket_public_access_block.terraform_state \
-                          -target=aws_dynamodb_table.terraform_locks \
-                          -target=data.aws_caller_identity.current \
-                          -auto-approve
+            terraform apply \
+              -target=aws_s3_bucket.terraform_state \
+              -target=aws_s3_bucket_versioning.terraform_state \
+              -target=aws_s3_bucket_server_side_encryption_configuration.terraform_state \
+              -target=aws_s3_bucket_public_access_block.terraform_state \
+              -target=aws_dynamodb_table.terraform_locks \
+              -target=data.aws_caller_identity.current \
+              -auto-approve
             
-            # Re-enable backend
-            git checkout provider.tf
+            # Restore original provider.tf with backend
+            mv provider.tf.backup provider.tf
             
             echo "✅ Backend infrastructure created"
           fi
