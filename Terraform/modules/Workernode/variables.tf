@@ -1,11 +1,11 @@
 variable "public-subnet1" {
   description = "ID of Public Subnet 1"
-  
+
 }
 
 variable "workernode_sg" {
   type = string
-  
+
 }
 
 
