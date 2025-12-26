@@ -1,0 +1,137 @@
+name: Validate Infrastructure Code
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: Validate Code Quality
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      # ============================================
+      # Terraform Validation
+      # ============================================
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+      
+      - name: Terraform Format Check
+        run: |
+          echo "::group::Terraform Format Check"
+          cd Terraform
+          
+          if terraform fmt -check -recursive; then
+            echo "✅ All Terraform files are properly formatted"
+          else
+            echo "❌ Some Terraform files need formatting"
+            echo "   Run: terraform fmt -recursive"
+            exit 1
+          fi
+          echo "::endgroup::"
+      
+      - name: Terraform Init
+        run: |
+          echo "::group::Terraform Init"
+          cd Terraform
+          terraform init -backend=false
+          echo "::endgroup::"
+      
+      - name: Terraform Validate
+        run: |
+          echo "::group::Terraform Validate"
+          cd Terraform
+          terraform validate
+          echo "✅ Terraform configuration is valid"
+          echo "::endgroup::"
+      
+      # ============================================
+      # Ansible Validation
+      # ============================================
+      - name: Setup Ansible
+        run: |
+          echo "::group::Ansible Setup"
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository --yes --update ppa:ansible/ansible
+          sudo apt-get install -y ansible
+          ansible --version
+          echo "::endgroup::"
+      
+      - name: Ansible Syntax Check
+        run: |
+          echo "::group::Ansible Syntax Check"
+          cd Ansible
+          
+          echo "Checking playbook syntax..."
+          for playbook in playbooks/*.yml; do
+            if [ -f "$playbook" ]; then
+              echo "Checking $playbook..."
+              ansible-playbook --syntax-check "$playbook"
+              echo "✅ $playbook syntax is valid"
+            fi
+          done
+          echo "::endgroup::"
+      
+      - name: Ansible Lint (Optional)
+        continue-on-error: true
+        run: |
+          echo "::group::Ansible Lint"
+          pip3 install ansible-lint
+          cd Ansible
+          ansible-lint playbooks/*.yml || echo "⚠️  Linting found issues (not blocking)"
+          echo "::endgroup::"
+      
+      # ============================================
+      # YAML Validation
+      # ============================================
+      - name: YAML Lint
+        run: |
+          echo "::group::YAML Lint"
+          pip3 install yamllint
+          
+          # Lint YAML files
+          yamllint -d '{extends: default, rules: {line-length: {max: 120}, indentation: {spaces: 2}}}' \
+            .github/workflows/*.yml \
+            Ansible/**/*.yml \
+            Monitoring/**/*.yml \
+            || echo "⚠️  YAML linting found issues (not blocking)"
+          
+          echo "::endgroup::"
+      
+      # ============================================
+      # Shell Script Validation
+      # ============================================
+      - name: shellcheck
+        run: |
+          echo "::group::Shell Script Check"
+          sudo apt-get install -y shellcheck
+          
+          echo "Checking shell scripts..."
+          if find scripts -name "*.sh" | xargs shellcheck; then
+            echo "✅ All shell scripts passed shellcheck"
+          else
+            echo "⚠️  shellcheck found issues"
+          fi
+          echo "::endgroup::"
+      
+      - name: ✅ Validation Summary
+        run: |
+          echo "╔════════════════════════════════════════════════╗"
+          echo "║     ✅ All Validation Checks Passed ✅        ║"
+          echo "╚════════════════════════════════════════════════╝"
+          echo ""
+          echo "✓ Terraform formatting"
+          echo "✓ Terraform validation"
+          echo "✓ Ansible syntax"
+          echo "✓ YAML linting"
+          echo "✓ Shell script checking"

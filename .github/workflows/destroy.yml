@@ -1,0 +1,87 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type "destroy" to confirm infrastructure destruction'
+        required: true
+        default: ''
+
+env:
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: 1.6.0
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    name: Destroy Infrastructure
+    # Only run if confirmation matches
+    if: github.event.inputs.confirmation == 'destroy'
+    
+    steps:
+      - name: ⚠️  Destroy Warning
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║             ⚠️  INFRASTRUCTURE DESTRUCTION  ⚠️            ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "This workflow will destroy ALL infrastructure created by Terraform:"
+          echo "  • Monitoring Node EC2"
+          echo "  • Webserver EC2 instances"
+          echo "  • VPC, Subnets, Security Groups"
+          echo "  • SSH Key Pairs"
+          echo ""
+          echo "⏳ Starting in 10 seconds..."
+          sleep 10
+      
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      
+      - name: Terraform Init
+        run: |
+          cd Terraform
+          terraform init
+      
+      - name: List Resources to be Destroyed
+        run: |
+          echo "::group::Resources to be Destroyed"
+          cd Terraform
+          
+          echo "📋 Current infrastructure state:"
+          terraform show -json | jq -r '.values.root_module.resources[] | select(.type == "aws_instance") | "\(.type).\(.name): \(.values.tags.Name)"'
+          
+          echo "::endgroup::"
+      
+      - name: Terraform Destroy
+        run: |
+          echo "::group::Terraform Destroy"
+          cd Terraform
+          
+          terraform destroy \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -auto-approve
+          
+          echo "::endgroup::"
+      
+      - name: ✅ Destruction Complete
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║          ✅ Infrastructure Destroyed Successfully         ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "All AWS resources have been removed."
+          echo "Terraform state file remains for audit purposes."

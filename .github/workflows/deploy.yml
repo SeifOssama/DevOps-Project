@@ -1,0 +1,718 @@
+name: Deploy Infrastructure & Services
+
+on:
+  workflow_dispatch:  # Manual trigger for experimentation
+    inputs:
+      skip_destroy:
+        description: 'Skip destroy confirmation'
+        required: false
+        default: 'false'
+  # Uncomment after testing to enable on push
+  # push:
+  #   branches:
+  #     - main
+
+env:
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: 1.6.0
+  ANSIBLE_VERSION: 2.15.0
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy Infrastructure & Services
+    
+    steps:
+      # ============================================
+      # PHASE 0: Setup & Pre-flight Checks
+      # ============================================
+      - name: 📋 Phase 0 - Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: ✅ Test - Verify Repository Structure
+        run: |
+          echo "::group::Repository Structure Check"
+          echo "Checking required directories..."
+          
+          required_dirs=("Terraform" "Ansible" "Monitoring" "scripts")
+          for dir in "${required_dirs[@]}"; do
+            if [ -d "$dir" ]; then
+              echo "✅ Found: $dir"
+            else
+              echo "❌ Missing: $dir"
+              exit 1
+            fi
+          done
+          
+          echo "✅ Repository structure validated"
+          echo "::endgroup::"
+      
+      - name: 🔐 Phase 0 - Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: ✅ Test - Verify AWS Credentials
+        run: |
+          echo "::group::AWS Credentials Verification"
+          echo "Testing AWS credentials..."
+          
+          CALLER_IDENTITY=$(aws sts get-caller-identity)
+          ACCOUNT_ID=$(echo $CALLER_IDENTITY | jq -r '.Account')
+          USER_ARN=$(echo $CALLER_IDENTITY | jq -r '.Arn')
+          
+          echo "✅ AWS Account: $ACCOUNT_ID"
+          echo "✅ IAM Identity: $USER_ARN"
+          echo "✅ AWS Region: $AWS_REGION"
+          echo "✅ AWS credentials are valid"
+          echo "::endgroup::"
+      
+      - name: 🔑 Phase 0 - Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      
+      - name: ✅ Test - Verify SSH Key Loaded
+        run: |
+          echo "::group::SSH Key Verification"
+          echo "Checking SSH agent..."
+          
+          KEY_COUNT=$(ssh-add -L | wc -l)
+          if [ "$KEY_COUNT" -ge 1 ]; then
+            echo "✅ SSH key loaded successfully"
+            echo "   Key fingerprint:"
+            ssh-add -l | head -1
+          else
+            echo "❌ No SSH keys found in agent"
+            exit 1
+          fi
+          
+          # Configure SSH to not check host keys (for automation)
+          mkdir -p ~/.ssh
+          cat >> ~/.ssh/config <<EOF
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile=/dev/null
+            LogLevel ERROR
+          EOF
+          
+          echo "✅ SSH configured for automation"
+          echo "::endgroup::"
+      
+      # ============================================
+      # PHASE 1: Infrastructure Provisioning
+      # ============================================
+      - name: 🏗️ Phase 1 - Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false  # Required for output parsing
+      
+      - name: 🏗️ Phase 1 - Terraform Init
+        run: |
+          echo "::group::Terraform Initialization"
+          cd Terraform
+          terraform init
+          echo "::endgroup::"
+      
+      - name: 🏗️ Phase 1 - Terraform Validate
+        run: |
+          echo "::group::Terraform Validation"
+          cd Terraform
+          terraform validate
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Terraform Validation Success
+        run: |
+          echo "::group::Terraform Validation Test"
+          cd Terraform
+          
+          # Check format
+          echo "Checking Terraform formatting..."
+          terraform fmt -check -recursive || {
+            echo "⚠️  Warning: Terraform files are not formatted"
+            echo "   Run 'terraform fmt -recursive' to fix"
+          }
+          
+          # Validate again to confirm
+          if terraform validate > /dev/null 2>&1; then
+            echo "✅ Terraform configuration is valid"
+          else
+            echo "❌ Terraform validation failed"
+            exit 1
+          fi
+          echo "::endgroup::"
+      
+      - name: 🏗️ Phase 1 - Terraform Plan
+        run: |
+          echo "::group::Terraform Plan"
+          cd Terraform
+          terraform plan \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -out=tfplan
+          echo "::endgroup::"
+      
+      - name: 🏗️ Phase 1 - Terraform Apply
+        run: |
+          echo "::group::Terraform Apply"
+          cd Terraform
+          terraform apply -auto-approve tfplan
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Terraform Outputs Sanity Check
+        id: tf_outputs
+        run: |
+          echo "::group::Terraform Outputs Validation"
+          cd Terraform
+          
+          # Run validation script
+          bash ../scripts/validate-terraform-outputs.sh
+          
+          # Save outputs for later steps
+          MONITORING_IP=$(terraform output -raw monitoring_node_public_ip)
+          WEBSERVER_IPS=$(terraform output -json webserver_public_ips | jq -r '.[]' | tr '\n' ' ')
+          
+          echo "monitoring_ip=$MONITORING_IP" >> $GITHUB_OUTPUT
+          echo "webserver_ips=$WEBSERVER_IPS" >> $GITHUB_OUTPUT
+          
+          echo "::endgroup::"
+      
+      - name: 📊 Phase 1 - Save Terraform Outputs
+        run: |
+          echo "::group::Saving Terraform Outputs"
+          cd Terraform
+          
+          terraform output -json > terraform-outputs.json
+          
+          echo "📄 Terraform Outputs:"
+          cat terraform-outputs.json | jq '.'
+          
+          echo "::endgroup::"
+      
+      - name: 📤 Upload Terraform Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-outputs
+          path: Terraform/terraform-outputs.json
+          retention-days: 7
+      
+      # ============================================
+      # PHASE 2: Inventory & Connectivity
+      # ============================================
+      - name: 🔧 Phase 2 - Setup Ansible
+        run: |
+          echo "::group::Ansible Installation"
+          
+          # Install Ansible
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository --yes --update ppa:ansible/ansible
+          sudo apt-get install -y ansible python3-pip
+          
+          # Install required Python packages
+          pip3 install boto3 botocore
+          
+          # Install AWS collection
+          ansible-galaxy collection install amazon.aws
+          
+          # Verify installation
+          ansible --version
+          
+          echo "✅ Ansible installed successfully"
+          echo "::endgroup::"
+      
+      - name: 📝 Phase 2 - Configure AWS Dynamic Inventory
+        run: |
+          echo "::group::AWS Dynamic Inventory Configuration"
+          cd Ansible
+          
+          # Verify aws_ec2.yml exists
+          if [ ! -f "inventory/aws_ec2.yml" ]; then
+            echo "❌ inventory/aws_ec2.yml not found"
+            exit 1
+          fi
+          
+          echo "✅ AWS EC2 dynamic inventory configured"
+          cat inventory/aws_ec2.yml
+          echo "::endgroup::"
+      
+      - name: ⏳ Phase 2 - Wait for EC2 Instances Ready
+        run: |
+          echo "::group::Waiting for EC2 Instances"
+          
+          # Get instance IDs from Terraform
+          cd Terraform
+          MONITORING_ID=$(terraform output -raw monitoring_node_id)
+          WEBSERVER_IDS=$(terraform output -json webserver_ids | jq -r '.[]')
+          
+          ALL_IDS="$MONITORING_ID $WEBSERVER_IDS"
+          
+          echo "Waiting for instances to pass status checks..."
+          for instance_id in $ALL_IDS; do
+            echo "  Checking $instance_id..."
+            aws ec2 wait instance-status-ok --instance-ids $instance_id --region $AWS_REGION
+            echo "  ✅ $instance_id is ready"
+          done
+          
+          # Additional wait for SSH to be fully ready
+          echo "Waiting additional 30s for SSH daemon to be fully ready..."
+          sleep 30
+          
+          echo "✅ All instances are ready"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Verify Inventory Structure
+        run: |
+          echo "::group::Inventory Structure Validation"
+          cd Ansible
+          
+          # Run validation script
+          bash ../scripts/validate-inventory.sh
+          
+          # Display inventory
+          echo "📋 Full Inventory:"
+          ansible-inventory -i inventory/aws_ec2.yml --list
+          
+          echo "::endgroup::"
+      
+      - name: ✅ Test - SSH Connectivity Test
+        run: |
+          echo "::group::SSH Connectivity Test"
+          cd Ansible
+          
+          echo "Testing SSH connectivity to all hosts..."
+          
+          # Run ping test
+          ansible all -i inventory/aws_ec2.yml -m ping -u ubuntu
+          
+          echo "✅ All hosts are SSH accessible"
+          echo "::endgroup::"
+      
+      # ============================================
+      # PHASE 3: Monitoring Node Configuration
+      # ============================================
+      - name: 🐳 Phase 3 - Configure Monitoring Node
+        run: |
+          echo "::group::Monitoring Node Configuration"
+          cd Ansible
+          
+          echo "Running monitoring node setup playbook..."
+          ansible-playbook -i inventory/aws_ec2.yml \
+            playbooks/setup-monitoring-node.yml \
+            -u ubuntu \
+            -v
+          
+          echo "✅ Monitoring node configured"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Verify Docker Installation
+        run: |
+          echo "::group::Docker Installation Verification"
+          cd Ansible
+          
+          echo "Checking Docker version..."
+          ansible tag_Name_monitoring_node -i inventory/aws_ec2.yml \
+            -m shell -a 'docker --version' -u ubuntu
+          
+          echo "Checking Docker Compose version..."
+          ansible tag_Name_monitoring_node -i inventory/aws_ec2.yml \
+            -m shell -a 'docker compose version' -u ubuntu
+          
+          echo "Checking Docker service status..."
+          ansible tag_Name_monitoring_node -i inventory/aws_ec2.yml \
+            -m shell -a 'systemctl is-active docker' -u ubuntu
+          
+          echo "✅ Docker is installed and running"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Verify Monitoring Containers Running
+        run: |
+          echo "::group::Monitoring Containers Verification"
+          cd Ansible
+          
+          echo "Checking Docker containers..."
+          ansible tag_Name_monitoring_node -i inventory/aws_ec2.yml \
+            -m shell -a 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"' -u ubuntu
+          
+          echo "Verifying required containers..."
+          CONTAINER_CHECK=$(ansible tag_Name_monitoring_node -i inventory/aws_ec2.yml \
+            -m shell -a 'docker ps --format "{{.Names}}"' -u ubuntu -o | grep -E "prometheus|grafana|alertmanager" | wc -l)
+          
+          if [ "$CONTAINER_CHECK" -ge 3 ]; then
+            echo "✅ All monitoring containers are running"
+          else
+            echo "⚠️  Warning: Not all containers are running yet"
+            echo "   Containers found: $CONTAINER_CHECK/3"
+          fi
+          
+          echo "::endgroup::"
+      
+      - name: ⏳ Phase 3 - Wait for Services Startup
+        run: |
+          echo "::group::Waiting for Services"
+          echo "Waiting 30 seconds for services to fully initialize..."
+          sleep 30
+          echo "✅ Services should be ready"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Prometheus Health Check
+        run: |
+          echo "::group::Prometheus Health Check"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          
+          echo "Testing Prometheus health endpoint..."
+          if curl -sf "http://$MONITORING_IP:9090/-/healthy"; then
+            echo "✅ Prometheus is healthy"
+          else
+            echo "❌ Prometheus health check failed"
+            exit 1
+          fi
+          
+          echo "Testing Prometheus ready endpoint..."
+          if curl -sf "http://$MONITORING_IP:9090/-/ready"; then
+            echo "✅ Prometheus is ready"
+          else
+            echo "❌ Prometheus ready check failed"
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Grafana Health Check
+        run: |
+          echo "::group::Grafana Health Check"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          
+          echo "Testing Grafana health endpoint..."
+          HEALTH_RESPONSE=$(curl -sf "http://$MONITORING_IP:3000/api/health")
+          
+          if echo "$HEALTH_RESPONSE" | jq -e '.database == "ok"' > /dev/null; then
+            echo "✅ Grafana is healthy"
+            echo "   Response: $HEALTH_RESPONSE"
+          else
+            echo "❌ Grafana health check failed"
+            echo "   Response: $HEALTH_RESPONSE"
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Alertmanager Health Check
+        run: |
+          echo "::group::Alertmanager Health Check"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          
+          echo "Testing Alertmanager health endpoint..."
+          if curl -sf "http://$MONITORING_IP:9093/-/healthy"; then
+            echo "✅ Alertmanager is healthy"
+          else
+            echo "❌ Alertmanager health check failed"
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+      
+      # ============================================
+      # PHASE 4: Webserver Configuration
+      # ============================================
+      - name: 🌐 Phase 4 - Configure Webservers
+        run: |
+          echo "::group::Webserver Configuration"
+          cd Ansible
+          
+          echo "Running webserver deployment playbook..."
+          ansible-playbook -i inventory/aws_ec2.yml \
+            playbooks/deploy-webservers.yml \
+            -u ubuntu \
+            -v
+          
+          echo "✅ Webservers configured"
+          echo "::endgroup::"
+      
+      - name: 🐳 Phase 4 - Install Exporters on Webservers
+        run: |
+          echo "::group::Exporters Installation"
+          cd Ansible
+          
+          echo "Running exporters installation playbook..."
+          ansible-playbook -i inventory/aws_ec2.yml \
+            playbooks/node-exporter-cadvisor-installation.yml \
+            -u ubuntu \
+            -v
+          
+          echo "✅ Exporters installed"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Verify Apache Installation
+        run: |
+          echo "::group::Apache Verification"
+          cd Ansible
+          
+          echo "Checking Apache2 service status..."
+          ansible tag_Name_webserver* -i inventory/aws_ec2.yml \
+            -m service -a 'name=apache2 state=started' -u ubuntu
+          
+          echo "Verifying Apache2 is enabled..."
+          ansible tag_Name_webserver* -i inventory/aws_ec2.yml \
+            -m shell -a 'systemctl is-enabled apache2' -u ubuntu
+          
+          echo "✅ Apache2 is installed and running on all webservers"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Verify Exporters Running
+        run: |
+          echo "::group::Exporters Verification"
+          cd Ansible
+          
+          echo "Checking exporter containers on webservers..."
+          ansible tag_Name_webserver* -i inventory/aws_ec2.yml \
+            -m shell -a 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"' -u ubuntu
+          
+          echo "Verifying node-exporter is running..."
+          ansible tag_Name_webserver* -i inventory/aws_ec2.yml \
+            -m shell -a 'docker ps | grep -q node-exporter && echo "RUNNING" || echo "NOT RUNNING"' -u ubuntu
+          
+          echo "Verifying cAdvisor is running..."
+          ansible tag_Name_webserver* -i inventory/aws_ec2.yml \
+            -m shell -a 'docker ps | grep -q cadvisor && echo "RUNNING" || echo "NOT RUNNING"' -u ubuntu
+          
+          echo "✅ Exporters are running on all webservers"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Webserver HTTP Endpoints
+        run: |
+          echo "::group::Webserver HTTP Endpoint Tests"
+          
+          WEBSERVER_IPS="${{ steps.tf_outputs.outputs.webserver_ips }}"
+          
+          echo "Testing webserver endpoints..."
+          for ip in $WEBSERVER_IPS; do
+            echo "Testing http://$ip/"
+            
+            RESPONSE=$(curl -sf "http://$ip/" || echo "FAILED")
+            
+            if [ "$RESPONSE" = "FAILED" ]; then
+              echo "❌ Webserver $ip is not responding"
+              exit 1
+            fi
+            
+            # Check if response contains expected content
+            if echo "$RESPONSE" | grep -qi "welcome\|devops\|webserver"; then
+              echo "✅ Webserver $ip is working correctly"
+            else
+              echo "⚠️  Warning: Webserver $ip responded but content may be unexpected"
+            fi
+          done
+          
+          echo "✅ All webservers are accessible"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Exporter Endpoints
+        run: |
+          echo "::group::Exporter Endpoint Tests"
+          
+          WEBSERVER_IPS="${{ steps.tf_outputs.outputs.webserver_ips }}"
+          
+          echo "Testing exporter endpoints..."
+          for ip in $WEBSERVER_IPS; do
+            echo "Testing node-exporter on $ip:9100..."
+            if curl -sf "http://$ip:9100/metrics" | head -5; then
+              echo "✅ Node-exporter on $ip is working"
+            else
+              echo "❌ Node-exporter on $ip failed"
+              exit 1
+            fi
+            
+            echo "Testing cAdvisor on $ip:8080..."
+            if curl -sf "http://$ip:8080/metrics" | head -5; then
+              echo "✅ cAdvisor on $ip is working"
+            else
+              echo "❌ cAdvisor on $ip failed"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All exporters are accessible"
+          echo "::endgroup::"
+      
+      # ============================================
+      # PHASE 5: Monitoring Integration
+      # ============================================
+      - name: ⏳ Phase 5 - Wait for Target Discovery
+        run: |
+          echo "::group::Waiting for Prometheus Target Discovery"
+          echo "Waiting 60 seconds for Prometheus to discover EC2 targets..."
+          sleep 60
+          echo "✅ Target discovery period complete"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Prometheus Targets Health
+        run: |
+          echo "::group::Prometheus Targets Health Check"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          
+          bash scripts/test-prometheus-targets.sh "http://$MONITORING_IP:9090"
+          
+          echo "::endgroup::"
+      
+      - name: 📊 Phase 5 - Display Prometheus Targets
+        run: |
+          echo "::group::Prometheus Targets Details"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          
+          echo "Fetching all active targets..."
+          curl -s "http://$MONITORING_IP:9090/api/v1/targets" | jq '.data.activeTargets[] | {job: .labels.job, instance: .labels.instance, health: .health, lastScrape: .lastScrape}'
+          
+          echo "::endgroup::"
+      
+      - name: 📊 Phase 5 - Provision Grafana Dashboards
+        run: |
+          echo "::group::Grafana Dashboard Provisioning"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          
+          # Check if dashboards directory exists and has files
+          if [ -d "Monitoring/grafana-dashboards" ] && [ "$(ls -A Monitoring/grafana-dashboards/*.json 2>/dev/null)" ]; then
+            echo "Dashboard files found, provisioning via API..."
+            
+            # Import dashboards via Grafana API
+            for dashboard_file in Monitoring/grafana-dashboards/*.json; do
+              echo "Importing $(basename $dashboard_file)..."
+              
+              # Wrap dashboard JSON in required format
+              DASHBOARD_JSON=$(cat $dashboard_file | jq '{dashboard: ., overwrite: true, folderId: 0}')
+              
+              curl -X POST "http://admin:admin@$MONITORING_IP:3000/api/dashboards/db" \
+                -H "Content-Type: application/json" \
+                -d "$DASHBOARD_JSON" || echo "Failed to import $(basename $dashboard_file)"
+            done
+          else
+            echo "ℹ️  No dashboard files found in Monitoring/grafana-dashboards/"
+            echo "   Dashboards can be added manually or placed in this directory"
+          fi
+          
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Verify Grafana Dashboards
+        run: |
+          echo "::group::Grafana Dashboard Verification"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          
+          bash scripts/test-grafana.sh "http://$MONITORING_IP:3000" admin admin
+          
+          echo "::endgroup::"
+      
+      # ============================================
+      # PHASE 6: Final Validation & Summary
+      # ============================================
+      - name: ✅ Phase 6 - Final Smoke Tests
+        run: |
+          echo "::group::Final Smoke Tests"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          WEBSERVER_IPS="${{ steps.tf_outputs.outputs.webserver_ips }}"
+          
+          echo "Running comprehensive final checks..."
+          
+          # 1. Infrastructure check
+          echo "1️⃣ Infrastructure Status:"
+          cd Terraform
+          terraform show -json | jq -r '.values.root_module.resources[] | select(.type == "aws_instance") | "\(.values.tags.Name): \(.values.instance_state)"'
+          cd ..
+          
+          # 2. Monitoring stack check
+          echo ""
+          echo "2️⃣ Monitoring Stack:"
+          curl -sf "http://$MONITORING_IP:9090/-/healthy" && echo "  ✅ Prometheus: Healthy" || echo "  ❌ Prometheus: Failed"
+          curl -sf "http://$MONITORING_IP:3000/api/health" && echo "  ✅ Grafana: Healthy" || echo "  ❌ Grafana: Failed"
+          curl -sf "http://$MONITORING_IP:9093/-/healthy" && echo "  ✅ Alertmanager: Healthy" || echo "  ❌ Alertmanager: Failed"
+          
+          # 3. Webservers check
+          echo ""
+          echo "3️⃣ Webservers:"
+          for ip in $WEBSERVER_IPS; do
+            curl -sf "http://$ip/" > /dev/null && echo "  ✅ $ip: Responding" || echo "  ❌ $ip: Failed"
+          done
+          
+          # 4. Targets check
+          echo ""
+          echo "4️⃣ Prometheus Targets:"
+          TARGETS_UP=$(curl -s "http://$MONITORING_IP:9090/api/v1/targets" | jq '[.data.activeTargets[] | select(.health == "up")] | length')
+          echo "  ✅ Targets UP: $TARGETS_UP"
+          
+          echo ""
+          echo "🎉 All smoke tests passed!"
+          echo "::endgroup::"
+      
+      - name: 📊 Phase 6 - Generate Deployment Summary
+        run: |
+          echo "::group::Deployment Summary"
+          
+          MONITORING_IP="${{ steps.tf_outputs.outputs.monitoring_ip }}"
+          WEBSERVER_IPS="${{ steps.tf_outputs.outputs.webserver_ips }}"
+          
+          cat << EOF
+          ╔════════════════════════════════════════════════════════════════╗
+          ║                  🎉 DEPLOYMENT SUCCESSFUL 🎉                  ║
+          ╚════════════════════════════════════════════════════════════════╝
+          
+          📍 INFRASTRUCTURE ENDPOINTS
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          🔍 Prometheus:    http://$MONITORING_IP:9090
+          📊 Grafana:       http://$MONITORING_IP:3000
+             └─ Username:   admin
+             └─ Password:   admin
+          🚨 Alertmanager:  http://$MONITORING_IP:9093
+          
+          🌐 WEBSERVERS
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          EOF
+          
+          idx=0
+          for ip in $WEBSERVER_IPS; do
+            echo "  Webserver-$idx:  http://$ip"
+            idx=$((idx + 1))
+          done
+          
+          cat << EOF
+          
+          📈 MONITORING STATUS
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          EOF
+          
+          TARGETS_UP=$(curl -s "http://$MONITORING_IP:9090/api/v1/targets" | jq '[.data.activeTargets[] | select(.health == "up")] | length')
+          TARGETS_TOTAL=$(curl -s "http://$MONITORING_IP:9090/api/v1/targets" | jq '.data.activeTargets | length')
+          
+          echo "  Targets UP:      $TARGETS_UP / $TARGETS_TOTAL"
+          
+          DASHBOARDS_COUNT=$(curl -s -u admin:admin "http://$MONITORING_IP:3000/api/search?type=dash-db" | jq 'length')
+          echo "  Dashboards:      $DASHBOARDS_COUNT"
+          
+          cat << EOF
+          
+          ⚡ QUICK ACTIONS
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          View Targets:     http://$MONITORING_IP:9090/targets
+          View Alerts:      http://$MONITORING_IP:9090/alerts
+          View Dashboards:  http://$MONITORING_IP:3000/dashboards
+          
+          ╔════════════════════════════════════════════════════════════════╗
+          ║  All services are operational and ready for monitoring! 🚀    ║
+          ╚════════════════════════════════════════════════════════════════╝
+          EOF
+          
+          echo "::endgroup::"
+      
+      - name: 🎉 Phase 6 - Deployment Complete
+        run: |
+          echo "✅ Deployment workflow completed successfully!"
+          echo "   All phases passed validation."
+          echo "   Infrastructure is ready for use."

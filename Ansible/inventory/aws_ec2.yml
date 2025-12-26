@@ -2,10 +2,23 @@
 plugin: amazon.aws.aws_ec2
 regions:
   - us-east-1
-filters:
-  "tag:Name": "webserver*"      # Only pick instances with Name = webserver tag
-hostnames:
-  - private-ip-address       # Use private IP for SSH connectivity
-groups:
-  webservers: "'webserver' in tags.Name"  # Creates a group called 'webservers'
 
+# Don't filter - discover all running instances
+filters:
+  instance-state-name: running
+
+# Use public IP for SSH from GitHub Actions
+hostnames:
+  - public-ip-address
+
+# Create groups based on EC2 tags
+keyed_groups:
+  # Group by Name tag
+  - key: tags.Name
+    prefix: tag_Name
+    separator: "_"
+
+# Compose variables for Ansible
+compose:
+  ansible_host: public_ip_address
+  ansible_user: "'ubuntu'"

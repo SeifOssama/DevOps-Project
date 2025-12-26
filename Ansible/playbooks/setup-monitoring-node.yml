@@ -1,0 +1,235 @@
+---
+- name: Setup Monitoring Node (Docker + Prometheus Stack)
+  hosts: tag_Name_monitoring_node
+  become: true
+  gather_facts: true
+  
+  tasks:
+    # ============================================
+    # Phase 1: Docker Installation
+    # ============================================
+    - name: Install Docker dependencies
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+      tags: [docker, setup]
+    
+    - name: Create keyrings directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      tags: [docker, setup]
+    
+    - name: Add Docker GPG key
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+      tags: [docker, setup]
+    
+    - name: Add Docker repository
+      shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+      tags: [docker, setup]
+    
+    - name: Update apt cache after adding Docker repo
+      apt:
+        update_cache: yes
+      tags: [docker, setup]
+    
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+      tags: [docker, setup]
+    
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+      tags: [docker, setup]
+    
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+      tags: [docker, setup]
+    
+    # ============================================
+    # Phase 2: Create Monitoring Directory Structure
+    # ============================================
+    - name: Create monitoring directory
+      file:
+        path: /home/ubuntu/monitoring
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      tags: [monitoring, setup]
+    
+    - name: Create prometheus directory
+      file:
+        path: /home/ubuntu/monitoring/prometheus
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      tags: [monitoring, setup]
+    
+    - name: Create alertmanager directory
+      file:
+        path: /home/ubuntu/monitoring/alertmanager
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      tags: [monitoring, setup]
+    
+    - name: Create grafana directories
+      file:
+        path: "/home/ubuntu/monitoring/grafana/{{ item }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      loop:
+        - provisioning
+        - provisioning/datasources
+        - provisioning/dashboards
+        - dashboards
+      tags: [monitoring, setup]
+    
+    # ============================================
+    # Phase 3: Copy Monitoring Configurations
+    # ============================================
+    - name: Copy docker-compose.yml
+      copy:
+        src: ../../Monitoring/docker-compose.yml
+        dest: /home/ubuntu/monitoring/docker-compose.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      tags: [monitoring, config]
+    
+    - name: Copy Prometheus config
+      copy:
+        src: ../../Monitoring/prometheus/prometheus.yml
+        dest: /home/ubuntu/monitoring/prometheus/prometheus.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      notify: reload prometheus
+      tags: [monitoring, config]
+    
+    - name: Copy Prometheus rules
+      copy:
+        src: ../../Monitoring/prometheus/rules.yml
+        dest: /home/ubuntu/monitoring/prometheus/rules.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      notify: reload prometheus
+      tags: [monitoring, config]
+    
+    - name: Copy Alertmanager config
+      copy:
+        src: ../../Monitoring/alertmanager/alertmanager.yml
+        dest: /home/ubuntu/monitoring/alertmanager/alertmanager.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      tags: [monitoring, config]
+    
+    - name: Copy Grafana datasource provisioning
+      copy:
+        src: ../../Monitoring/grafana-provisioning/datasources/prometheus.yml
+        dest: /home/ubuntu/monitoring/grafana/provisioning/datasources/prometheus.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      when: false  # Will be created below
+      tags: [monitoring, config]
+    
+    - name: Create Grafana datasource provisioning
+      copy:
+        dest: /home/ubuntu/monitoring/grafana/provisioning/datasources/prometheus.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              type: prometheus
+              access: proxy
+              url: http://prometheus:9090
+              isDefault: true
+              editable: false
+      tags: [monitoring, config]
+    
+    - name: Create Grafana dashboard provider
+      copy:
+        dest: /home/ubuntu/monitoring/grafana/provisioning/dashboards/default.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+        content: |
+          apiVersion: 1
+          providers:
+            - name: 'Default'
+              orgId: 1
+              folder: ''
+              type: file
+              disableDeletion: false
+              updateIntervalSeconds: 10
+              allowUiUpdates: true
+              options:
+                path: /var/lib/grafana/dashboards
+      tags: [monitoring, config]
+    
+    # ============================================
+    # Phase 4: Deploy Monitoring Stack
+    # ============================================
+    - name: Start monitoring stack with Docker Compose
+      shell: |
+        cd /home/ubuntu/monitoring
+        docker compose down || true
+        docker compose up -d
+      become_user: ubuntu
+      environment:
+        HOME: /home/ubuntu
+      tags: [monitoring, deploy]
+    
+    - name: Wait for monitoring services to start
+      wait_for:
+        port: "{{ item }}"
+        delay: 5
+        timeout: 60
+      loop:
+        - 9090  # Prometheus
+        - 3000  # Grafana
+        - 9093  # Alertmanager
+      tags: [monitoring, deploy, validation]
+  
+  handlers:
+    - name: reload prometheus
+      uri:
+        url: "http://localhost:9090/-/reload"
+        method: POST
+      ignore_errors: yes
