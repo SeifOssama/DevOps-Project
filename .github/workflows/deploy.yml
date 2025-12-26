@@ -154,6 +154,7 @@ jobs:
               -target=aws_s3_bucket_public_access_block.terraform_state \
               -target=aws_dynamodb_table.terraform_locks \
               -target=data.aws_caller_identity.current \
+              -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
               -auto-approve
             
             # Restore original provider.tf with backend
