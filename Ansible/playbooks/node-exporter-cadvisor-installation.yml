@@ -10,67 +10,18 @@
   tasks:
 
     # --------------------------------------------------
-    # 1. Install Docker (official method)
+    # Docker is already installed via install-docker.yml
+    # Starting directly with monitoring stack deployment
     # --------------------------------------------------
-    - name: Install required packages
-      apt:
-        name:
-          - apt-transport-https
-          - ca-certificates
-          - curl
-          - software-properties-common
-        state: present
-        update_cache: yes
-
-    - name: Add Docker GPG key
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
-
-    - name: Add Docker repository
-      apt_repository:
-        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
-        state: present
-
-    - name: Install Docker Engine + Compose plugin
-      apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-compose-plugin   # VERY IMPORTANT for "docker compose"
-        state: latest
-        update_cache: yes
-
-    - name: Enable Docker service to start on boot
-      systemd:
-        name: docker
-        enabled: yes
-        state: started
-
+    
     # --------------------------------------------------
-    # 2. Add Ansible SSH user to docker group
-    # Equivalent to: usermod -aG docker $USER
+    # 1. Ensure user has docker group permissions active
     # --------------------------------------------------
-    - name: Ensure docker group exists
-      group:
-        name: docker
-        state: present
-
-    - name: Add current Ansible user to docker group
-      user:
-        name: "{{ ansible_user }}"
-        groups: docker
-        append: yes
-
-    # --------------------------------------------------
-    # 3. Refresh SSH connection (Equivalent to `newgrp docker`)
-    # --------------------------------------------------
-    - name: Refresh SSH connection to apply new group membership
+    - name: Refresh SSH connection to ensure docker group is active
       meta: reset_connection
 
     # --------------------------------------------------
-    # 4. Deploy monitoring stack
+    # 2. Deploy monitoring stack
     # --------------------------------------------------
     - name: Ensure monitoring directory exists
       file:

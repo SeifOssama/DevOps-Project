@@ -317,17 +317,55 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y software-properties-common
           sudo add-apt-repository --yes --update ppa:ansible/ansible
-          sudo apt-get install -y ansible python3-pip
+          sudo apt-get install -y ansible python3-pip python3 unzip
           
-          # Install required Python packages
-          pip3 install boto3 botocore
+          # Verify Ansible installation
+          ansible --version
+          echo ""
+          
+          # Find Ansible's Python interpreter
+          ANSIBLE_PYTHON=$(ansible --version | grep "python version" | awk '{print $4}' | cut -d'/' -f1-4)/python3
+          echo "📍 Ansible Python interpreter: $ANSIBLE_PYTHON"
+          
+          # Install Python packages in Ansible's Python environment
+          echo "Installing boto3 and botocore in Ansible's Python environment..."
+          if [ -f "$ANSIBLE_PYTHON" ]; then
+            sudo $ANSIBLE_PYTHON -m pip install --upgrade pip
+            sudo $ANSIBLE_PYTHON -m pip install --upgrade boto3 botocore
+          else
+            # Fallback: install in system Python and hope Ansible can access it
+            echo "⚠️  Could not find Ansible's Python, installing in system Python"
+            pip3 install --upgrade pip
+            pip3 install --upgrade boto3 botocore
+          fi
           
           # Install AWS collection
           ansible-galaxy collection install amazon.aws
           
-          # Verify installation
-          ansible --version
+          # Install AWS CLI
+          echo "Installing AWS CLI..."
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          sudo ./aws/install --update
+          aws --version
+          rm -rf awscliv2.zip aws
           
+          # Verify boto3/botocore installation
+          echo ""
+          echo "Verifying boto3/botocore installation..."
+          if [ -f "$ANSIBLE_PYTHON" ]; then
+            $ANSIBLE_PYTHON -c "import boto3; import botocore; print(f'✅ boto3 version: {boto3.__version__}'); print(f'✅ botocore version: {botocore.__version__}')" || {
+              echo "❌ Failed to import boto3/botocore in Ansible's Python"
+              exit 1
+            }
+          else
+            python3 -c "import boto3; import botocore; print(f'✅ boto3 version: {boto3.__version__}'); print(f'✅ botocore version: {botocore.__version__}')" || {
+              echo "❌ Failed to import boto3/botocore in system Python"
+              exit 1
+            }
+          fi
+          
+          echo ""
           echo "✅ Ansible installed successfully"
           echo "::endgroup::"
       
@@ -396,6 +434,43 @@ jobs:
           ansible all -i inventory/aws_ec2.yml -m ping -u ubuntu
           
           echo "✅ All hosts are SSH accessible"
+          echo "::endgroup::"
+      
+      # ============================================
+      # PHASE 2.5: Docker Pre-Installation
+      # ============================================
+      - name: 🐳 Phase 2.5 - Install Docker on All Targets
+        run: |
+          echo "::group::Docker Installation"
+          cd Ansible
+          
+          echo "Installing Docker and Docker Compose on all EC2 instances..."
+          ansible-playbook -i inventory/aws_ec2.yml \
+            playbooks/install-docker.yml \
+            -u ubuntu \
+            -v
+          
+          echo "✅ Docker installed on all targets"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Verify Docker Installation on All Hosts
+        run: |
+          echo "::group::Docker Installation Verification"
+          cd Ansible
+          
+          echo "Checking Docker version on all hosts..."
+          ansible all -i inventory/aws_ec2.yml \
+            -m shell -a 'docker --version' -u ubuntu
+          
+          echo "Checking Docker Compose version on all hosts..."
+          ansible all -i inventory/aws_ec2.yml \
+            -m shell -a 'docker compose version' -u ubuntu
+          
+          echo "Checking Docker service status on all hosts..."
+          ansible all -i inventory/aws_ec2.yml \
+            -m shell -a 'systemctl is-active docker' -u ubuntu
+          
+          echo "✅ Docker is installed and running on all hosts"
           echo "::endgroup::"
       
       # ============================================

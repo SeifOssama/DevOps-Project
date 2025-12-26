@@ -1,0 +1,142 @@
+---
+- name: Install Docker and Docker Compose on all EC2 targets
+  hosts: all
+  become: true
+  gather_facts: true
+  
+  tasks:
+    # ============================================
+    # Phase 1: Install Prerequisites
+    # ============================================
+    - name: Install Docker dependencies
+      apt:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: yes
+      tags: [docker, prerequisites]
+    
+    # ============================================
+    # Phase 2: Add Docker Repository
+    # ============================================
+    - name: Create keyrings directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      tags: [docker, setup]
+    
+    - name: Download and install Docker GPG key
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+      args:
+        creates: /etc/apt/keyrings/docker.asc
+      tags: [docker, setup]
+    
+    - name: Get Ubuntu codename
+      shell: . /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+      register: ubuntu_codename
+      changed_when: false
+      tags: [docker, setup]
+    
+    - name: Add Docker repository to apt sources
+      copy:
+        dest: /etc/apt/sources.list.d/docker.sources
+        content: |
+          Types: deb
+          URIs: https://download.docker.com/linux/ubuntu
+          Suites: {{ ubuntu_codename.stdout }}
+          Components: stable
+          Signed-By: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+      tags: [docker, setup]
+    
+    - name: Update apt cache after adding Docker repository
+      apt:
+        update_cache: yes
+      tags: [docker, setup]
+    
+    # ============================================
+    # Phase 3: Install Docker
+    # ============================================
+    - name: Install Docker Engine and plugins
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+      tags: [docker, install]
+    
+    - name: Start Docker service
+      systemd:
+        name: docker
+        state: started
+      tags: [docker, service]
+    
+    - name: Enable Docker service to start on boot
+      systemd:
+        name: docker
+        enabled: yes
+      tags: [docker, service]
+    
+    # ============================================
+    # Phase 4: Configure Docker Permissions
+    # ============================================
+    - name: Ensure docker group exists
+      group:
+        name: docker
+        state: present
+      tags: [docker, permissions]
+    
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+      tags: [docker, permissions]
+    
+    # Note: newgrp docker effect happens on next SSH login
+    # The workflow already uses reset_connection in subsequent playbooks
+    
+    # ============================================
+    # Phase 5: Verify Installation
+    # ============================================
+    - name: Verify Docker installation
+      command: docker --version
+      register: docker_version
+      changed_when: false
+      tags: [docker, verify]
+    
+    - name: Display Docker version
+      debug:
+        msg: "✅ {{ docker_version.stdout }}"
+      tags: [docker, verify]
+    
+    - name: Verify Docker Compose installation
+      command: docker compose version
+      register: compose_version
+      changed_when: false
+      tags: [docker, verify]
+    
+    - name: Display Docker Compose version
+      debug:
+        msg: "✅ {{ compose_version.stdout }}"
+      tags: [docker, verify]
+    
+    - name: Verify Docker service is running
+      systemd:
+        name: docker
+        state: started
+      check_mode: yes
+      register: docker_service
+      tags: [docker, verify]
+    
+    - name: Display Docker service status
+      debug:
+        msg: "✅ Docker service is {{ docker_service.status.ActiveState }}"
+      tags: [docker, verify]
