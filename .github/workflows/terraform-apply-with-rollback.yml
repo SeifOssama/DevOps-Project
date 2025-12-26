@@ -1,0 +1,129 @@
+name: Terraform Apply with Auto-Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      auto_destroy_on_failure:
+        description: 'Automatically destroy resources if deployment fails'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: 1.6.0
+
+jobs:
+  terraform-deploy:
+    runs-on: ubuntu-latest
+    name: Terraform Deploy with Rollback
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ./Terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ./Terraform
+        run: |
+          terraform plan \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -out=tfplan
+          
+          # Save plan output for review
+          terraform show -no-color tfplan > plan-output.txt
+
+      - name: Upload Plan Output
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: Terraform/plan-output.txt
+          retention-days: 7
+
+      - name: Terraform Apply
+        id: apply
+        working-directory: ./Terraform
+        run: |
+          terraform apply -auto-approve tfplan
+          echo "apply_status=success" >> $GITHUB_OUTPUT
+
+      # ============================================
+      # CLEANUP ON FAILURE
+      # ============================================
+      - name: Cleanup on Failure
+        if: failure() && github.event.inputs.auto_destroy_on_failure == 'true' && steps.apply.outcome == 'failure'
+        working-directory: ./Terraform
+        run: |
+          echo "⚠️ Terraform apply failed. Initiating automatic cleanup..."
+          
+          # Try to destroy with current state
+          terraform destroy \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -auto-approve || {
+              echo "⚠️ Standard destroy failed, attempting state cleanup..."
+              
+              # If destroy fails due to state issues, try to remove problematic resources
+              terraform state list | grep -E "security_group.*rule" | while read resource; do
+                echo "Removing from state: $resource"
+                terraform state rm "$resource" || true
+              done
+              
+              # Try destroy again
+              terraform destroy \
+                -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+                -auto-approve || echo "⚠️ Some resources may remain. Check AWS Console."
+            }
+
+      - name: Notify Failure
+        if: failure()
+        run: |
+          echo "::error::Deployment failed. Check logs above for details."
+          
+          if [ "${{ github.event.inputs.auto_destroy_on_failure }}" = "true" ]; then
+            echo "::warning::Auto-cleanup was attempted. Verify all resources are destroyed in AWS Console."
+          else
+            echo "::warning::Auto-cleanup was disabled. You may need to manually run 'terraform destroy'."
+          fi
+
+      - name: Save Terraform State on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state-failure
+          path: |
+            Terraform/.terraform
+            Terraform/terraform.tfstate
+            Terraform/terraform.tfstate.backup
+          retention-days: 7
+
+      - name: Deployment Summary
+        if: success()
+        working-directory: ./Terraform
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║              ✅ DEPLOYMENT SUCCESSFUL                      ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "🎉 Infrastructure deployed successfully!"
+          echo ""
+          echo "📋 Outputs:"
+          terraform output -json | jq '.'
