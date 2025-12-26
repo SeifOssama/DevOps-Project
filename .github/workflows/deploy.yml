@@ -314,32 +314,28 @@ jobs:
           echo "::group::Ansible Installation"
           
           # ----------------------------
-          # Ansible Installation
+          # Phase 3: Ansible Installation 
           # ----------------------------
-          sudo apt-get update
-          sudo apt-get install -y software-properties-common
+          sudo apt install -y software-properties-common
           sudo add-apt-repository --yes --update ppa:ansible/ansible
-          sudo apt-get install -y ansible python3 python3-pip unzip
+          sudo apt install -y ansible python3 python3-pip unzip 
           
           sudo systemctl daemon-reload
           
           # Install Python packages idempotently
-          pip3 install --upgrade pip
-          pip3 install --upgrade boto3 botocore
-          ansible-galaxy collection install amazon.aws
+          sudo pip3 install --upgrade pip
+          sudo pip3 install --upgrade boto3 botocore
+          sudo ansible-galaxy collection install amazon.aws
           
           # Install AWS CLI
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -q awscliv2.zip
+          unzip awscliv2.zip
           sudo ./aws/install --update
           aws --version
           rm -rf awscliv2.zip aws
           
-          # Verify installation
-          ansible --version
-          
           echo ""
-          echo "✅ Ansible installed successfully"
+          echo "✅ Ansible and dependencies installed successfully"
           echo "::endgroup::"
       
       # Set environment variable to use system Python for all Ansible commands
@@ -348,6 +344,120 @@ jobs:
         run: |
           echo "ANSIBLE_PYTHON_INTERPRETER=/usr/bin/python3" >> $GITHUB_ENV
           echo "✅ Configured Ansible to use system Python interpreter"
+      
+      - name: ✅ Test - Verify All Packages Installed Correctly
+        run: |
+          echo "::group::Package Installation Verification"
+          
+          # Test Ansible
+          echo "1️⃣ Verifying Ansible installation..."
+          if ansible --version; then
+            echo "✅ Ansible is installed correctly"
+          else
+            echo "❌ Ansible installation failed"
+            exit 1
+          fi
+          
+          # Test Python3
+          echo ""
+          echo "2️⃣ Verifying Python3 installation..."
+          if python3 --version; then
+            echo "✅ Python3 is installed correctly"
+          else
+            echo "❌ Python3 installation failed"
+            exit 1
+          fi
+          
+          # Test pip3
+          echo ""
+          echo "3️⃣ Verifying pip3 installation..."
+          if pip3 --version; then
+            echo "✅ pip3 is installed correctly"
+          else
+            echo "❌ pip3 installation failed"
+            exit 1
+          fi
+          
+          # Test boto3
+          echo ""
+          echo "4️⃣ Verifying boto3 installation..."
+          if python3 -c "import boto3; print(f'boto3 version: {boto3.__version__}')"; then
+            echo "✅ boto3 is installed correctly"
+          else
+            echo "❌ boto3 installation failed"
+            exit 1
+          fi
+          
+          # Test botocore
+          echo ""
+          echo "5️⃣ Verifying botocore installation..."
+          if python3 -c "import botocore; print(f'botocore version: {botocore.__version__}')"; then
+            echo "✅ botocore is installed correctly"
+          else
+            echo "❌ botocore installation failed"
+            exit 1
+          fi
+          
+          # Test ansible-galaxy amazon.aws collection
+          echo ""
+          echo "6️⃣ Verifying ansible-galaxy amazon.aws collection..."
+          if ansible-galaxy collection list | grep -q "amazon.aws"; then
+            echo "✅ ansible-galaxy amazon.aws collection is installed correctly"
+            ansible-galaxy collection list | grep amazon.aws
+          else
+            echo "❌ ansible-galaxy amazon.aws collection installation failed"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All packages verified successfully"
+          echo "::endgroup::"
+      
+      - name: ✅ Test - Verify AWS EC2 Dynamic Inventory Plugin
+        run: |
+          echo "::group::AWS EC2 Plugin Verification"
+          
+          cd Ansible
+          
+          # Verify aws_ec2.yml exists
+          if [ ! -f "inventory/aws_ec2.yml" ]; then
+            echo "❌ inventory/aws_ec2.yml not found"
+            exit 1
+          fi
+          
+          echo "Testing AWS EC2 dynamic inventory plugin..."
+          echo ""
+          
+          # Test 1: ansible-inventory --list
+          echo "1️⃣ Testing ansible-inventory --list..."
+          if ansible-inventory -i inventory/aws_ec2.yml --list > /tmp/inventory_list.json; then
+            echo "✅ ansible-inventory --list executed successfully"
+            
+            # Check if output contains aws_ec2 group
+            if cat /tmp/inventory_list.json | jq -e '.aws_ec2' > /dev/null 2>&1; then
+              echo "✅ Found aws_ec2 group in inventory"
+            else
+              echo "⚠️  Warning: aws_ec2 group not found in inventory (no instances may be running yet)"
+            fi
+          else
+            echo "❌ ansible-inventory --list failed"
+            exit 1
+          fi
+          
+          echo ""
+          
+          # Test 2: ansible-inventory --graph
+          echo "2️⃣ Testing ansible-inventory --graph..."
+          if ansible-inventory -i inventory/aws_ec2.yml --graph; then
+            echo "✅ ansible-inventory --graph executed successfully"
+          else
+            echo "❌ ansible-inventory --graph failed"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ AWS EC2 dynamic inventory plugin is working correctly"
+          echo "::endgroup::"
       
       - name: 📝 Phase 2 - Configure AWS Dynamic Inventory
         run: |
@@ -408,11 +518,17 @@ jobs:
           echo "::group::SSH Connectivity Test"
           cd Ansible
           
-          echo "Testing SSH connectivity to all hosts..."
+          # List all hosts
+          echo "1️⃣ Listing all hosts in inventory..."
+          ansible all -i inventory/aws_ec2.yml --list-hosts
           
-          # Run ping test
+          echo ""
+          
+          # Test SSH connectivity with ping
+          echo "2️⃣ Testing SSH connectivity to all hosts..."
           ansible all -i inventory/aws_ec2.yml -m ping -u ubuntu
           
+          echo ""
           echo "✅ All hosts are SSH accessible"
           echo "::endgroup::"
       
