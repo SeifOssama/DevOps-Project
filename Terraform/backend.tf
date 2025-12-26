@@ -1,16 +1,11 @@
 # === Backend Infrastructure Management === #
 # This file manages the S3 bucket and DynamoDB table used for Terraform state
-# These resources are imported if they already exist (created by GitHub Actions)
+# The GitHub Actions workflow creates these resources if they don't exist
 
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
 
-# Import existing S3 bucket for state storage
-import {
-  to = aws_s3_bucket.terraform_state
-  id = "devops-project-terraform-state-${data.aws_caller_identity.current.account_id}"
-}
-
+# S3 bucket for state storage
 resource "aws_s3_bucket" "terraform_state" {
   bucket = "devops-project-terraform-state-${data.aws_caller_identity.current.account_id}"
 
@@ -19,14 +14,13 @@ resource "aws_s3_bucket" "terraform_state" {
     Environment = "Production"
     ManagedBy   = "Terraform"
   }
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
 }
 
-# Import existing versioning configuration
-import {
-  to = aws_s3_bucket_versioning.terraform_state
-  id = "devops-project-terraform-state-${data.aws_caller_identity.current.account_id}"
-}
-
+# Enable versioning on state bucket
 resource "aws_s3_bucket_versioning" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
@@ -35,12 +29,7 @@ resource "aws_s3_bucket_versioning" "terraform_state" {
   }
 }
 
-# Import existing encryption configuration
-import {
-  to = aws_s3_bucket_server_side_encryption_configuration.terraform_state
-  id = "devops-project-terraform-state-${data.aws_caller_identity.current.account_id}"
-}
-
+# Enable encryption on state bucket
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
@@ -51,12 +40,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" 
   }
 }
 
-# Import existing public access block configuration
-import {
-  to = aws_s3_bucket_public_access_block.terraform_state
-  id = "devops-project-terraform-state-${data.aws_caller_identity.current.account_id}"
-}
-
+# Block public access to state bucket
 resource "aws_s3_bucket_public_access_block" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
@@ -66,12 +50,7 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
   restrict_public_buckets = true
 }
 
-# Import existing DynamoDB table for state locking
-import {
-  to = aws_dynamodb_table.terraform_locks
-  id = "terraform-state-locks"
-}
-
+# DynamoDB table for state locking
 resource "aws_dynamodb_table" "terraform_locks" {
   name         = "terraform-state-locks"
   billing_mode = "PAY_PER_REQUEST"
@@ -86,5 +65,9 @@ resource "aws_dynamodb_table" "terraform_locks" {
     Name        = "Terraform State Lock Table"
     Environment = "Production"
     ManagedBy   = "Terraform"
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
   }
 }
