@@ -110,6 +110,65 @@ jobs:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false  # Required for output parsing
       
+      - name: 🗄️ Phase 1 - Create Backend Infrastructure
+        run: |
+          echo "::group::Backend Infrastructure Setup"
+          cd Terraform
+          
+          echo "Checking if backend infrastructure exists..."
+          
+          # Check if S3 bucket exists
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="devops-project-terraform-state-$ACCOUNT_ID"
+          
+          if aws s3 ls "s3://$BUCKET_NAME" 2>/dev/null; then
+            echo "✅ S3 bucket already exists: $BUCKET_NAME"
+          else
+            echo "📦 Creating backend infrastructure..."
+            
+            # Temporarily disable backend for initial setup
+            sed -i 's/backend "s3" {/# backend "s3" {/g' provider.tf
+            sed -i 's/^  bucket/  # bucket/g' provider.tf
+            sed -i 's/^  key/  # key/g' provider.tf
+            sed -i 's/^  region/  # region/g' provider.tf
+            sed -i 's/^  dynamodb_table/  # dynamodb_table/g' provider.tf
+            sed -i 's/^  encrypt/  # encrypt/g' provider.tf
+            sed -i 's/^  }/  # }/g' provider.tf
+            
+            terraform init
+            terraform apply -target=aws_s3_bucket.terraform_state \
+                          -target=aws_s3_bucket_versioning.terraform_state \
+                          -target=aws_s3_bucket_server_side_encryption_configuration.terraform_state \
+                          -target=aws_s3_bucket_public_access_block.terraform_state \
+                          -target=aws_dynamodb_table.terraform_locks \
+                          -target=data.aws_caller_identity.current \
+                          -auto-approve
+            
+            # Re-enable backend
+            git checkout provider.tf
+            
+            echo "✅ Backend infrastructure created"
+          fi
+          
+          echo "::endgroup::"
+      
+      - name: 🔓 Phase 1 - Clear Stuck Locks (if any)
+        if: always()
+        continue-on-error: true
+        run: |
+          echo "::group::Lock Cleanup"
+          
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="devops-project-terraform-state-$ACCOUNT_ID"
+          
+          echo "Checking for stuck locks..."
+          aws dynamodb delete-item \
+            --table-name terraform-state-locks \
+            --key "{\"LockID\": {\"S\": \"$BUCKET_NAME/devops-project/terraform.tfstate\"}}" \
+            2>/dev/null || echo "No stuck locks found (or table doesn't exist yet)"
+          
+          echo "::endgroup::"
+      
       - name: 🏗️ Phase 1 - Terraform Init
         run: |
           echo "::group::Terraform Initialization"
@@ -751,6 +810,18 @@ jobs:
           echo ""
           echo "The deployment failed. Automatically destroying any created resources..."
           echo "This prevents orphaned resources and AWS charges."
+      
+      - name: 🔓 Clear Stuck Locks
+        continue-on-error: true
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="devops-project-terraform-state-$ACCOUNT_ID"
+          
+          echo "Clearing any stuck locks..."
+          aws dynamodb delete-item \
+            --table-name terraform-state-locks \
+            --key "{\"LockID\": {\"S\": \"$BUCKET_NAME/devops-project/terraform.tfstate\"}}" \
+            2>/dev/null || echo "No locks to clear"
       
       - name: 🧹 Terraform Destroy
         run: |
