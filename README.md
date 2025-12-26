@@ -21,9 +21,56 @@ The project deploys multiple EC2 webservers, configures them automatically using
 | Monitoring | Prometheus |
 | Alerting | Alertmanager |
 | Dashboard Visualization | Grafana |
+| CI/CD Automation | GitHub Actions |
 
 
-	
+
+
+## 🔄 GitHub Actions Workflows
+
+This project includes **3 automated workflows** for complete infrastructure lifecycle management:
+
+### 1️⃣ **Deploy Infrastructure & Services**
+- **Trigger**: Manual dispatch (workflow_dispatch)
+- **Duration**: ~8-12 minutes
+- **Purpose**: Complete end-to-end deployment
+- **Phases**:
+  - Phase 0: Setup & Preflight Checks
+  - Phase 1: Infrastructure Provisioning (Terraform)
+  - Phase 2: Ansible Environment Setup
+  - Phase 2.5: Docker Pre-Installation
+  - Phase 3: Monitoring Node Configuration
+  - Phase 4: Webserver Configuration
+  - Phase 5: Monitoring Integration
+  - Phase 6: Final Validation & Summary
+- **Auto-Cleanup**: ✅ Automatically destroys partial infrastructure on **any failure**
+- **Comprehensive Testing**: 20+ validation steps throughout deployment
+
+### 2️⃣ **Destroy All Infrastructure**
+- **Trigger**: Manual dispatch (requires `destroy` confirmation)
+- **Duration**: ~3-5 minutes
+- **Purpose**: Complete infrastructure teardown
+- **Features**:
+  - Retry logic for failed destroys
+  - Drift detection (handles manually deleted resources)
+  - Orphaned resource detection
+  - Preserves S3 state bucket & DynamoDB table
+- **Safety**: Requires typing "destroy" to confirm
+
+### 3️⃣ **Validate Infrastructure Code**
+- **Trigger**: Pull requests to `main`, pushes to feature branches
+- **Duration**: ~2-3 minutes
+- **Purpose**: Code quality assurance
+- **Validates**:
+  - Terraform formatting (`terraform fmt`)
+  - Terraform configuration (`terraform validate`)
+  - Ansible playbook syntax
+  - Ansible linting
+  - YAML linting
+  - Shell script checking (shellcheck)
+
+📖 **For detailed deployment instructions**, see [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md)
+
 	
 	
 ## ⭐ Project Features

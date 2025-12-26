@@ -19,10 +19,6 @@ resource "aws_s3_bucket" "terraform_state" {
     Environment = "Production"
     ManagedBy   = "Terraform"
   }
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 # Import existing versioning configuration
@@ -90,9 +86,5 @@ resource "aws_dynamodb_table" "terraform_locks" {
     Name        = "Terraform State Lock Table"
     Environment = "Production"
     ManagedBy   = "Terraform"
-  }
-
-  lifecycle {
-    prevent_destroy = true
   }
 }

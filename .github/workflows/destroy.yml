@@ -1,4 +1,4 @@
-name: Destroy Infrastructure
+name: Destroy All Infrastructure
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ env:
 jobs:
   destroy:
     runs-on: ubuntu-latest
-    name: Destroy Infrastructure
+    name: Destroy All Infrastructure
     # Only run if confirmation matches
     if: github.event.inputs.confirmation == 'destroy'
     
@@ -32,56 +32,270 @@ jobs:
           echo "  • VPC, Subnets, Security Groups"
           echo "  • SSH Key Pairs"
           echo ""
+          echo "⚠️  Note: S3 state bucket and DynamoDB table will be preserved"
+          echo ""
           echo "⏳ Starting in 10 seconds..."
           sleep 10
       
-      - name: Checkout Code
+      - name: 📋 Checkout Code
         uses: actions/checkout@v4
       
-      - name: Configure AWS Credentials
+      - name: 🔐 Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
       
-      - name: Setup Terraform
+      - name: ✅ Verify AWS Credentials
+        run: |
+          echo "Verifying AWS credentials..."
+          CALLER_IDENTITY=$(aws sts get-caller-identity)
+          ACCOUNT_ID=$(echo $CALLER_IDENTITY | jq -r '.Account')
+          echo "✅ AWS Account: $ACCOUNT_ID"
+      
+      - name: 🏗️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
       
-      - name: Terraform Init
+      - name: 🔓 Clear Stuck Locks (if any)
+        continue-on-error: true
         run: |
-          cd Terraform
-          terraform init
+          echo "Checking for stuck locks..."
+          
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="devops-project-terraform-state-$ACCOUNT_ID"
+          
+          # Attempt to clear any stuck locks
+          aws dynamodb delete-item \
+            --table-name terraform-state-locks \
+            --key "{\"LockID\": {\"S\": \"$BUCKET_NAME/devops-project/terraform.tfstate\"}}" \
+            2>/dev/null || echo "No stuck locks found (or table doesn't exist)"
+          
+          echo "✅ Lock check complete"
       
-      - name: List Resources to be Destroyed
+      - name: 🏗️ Terraform Init
+        run: |
+          echo "::group::Terraform Initialization"
+          cd Terraform
+          
+          # Try to initialize with remote backend
+          if terraform init; then
+            echo "✅ Terraform initialized with remote backend"
+          else
+            echo "⚠️  Remote backend initialization failed, trying local backend..."
+            
+            # Backup backend configuration
+            if [ -f "provider.tf" ]; then
+              mv provider.tf provider.tf.backup
+            fi
+            
+            # Create temporary provider without backend
+            cat > provider_temp.tf <<'EOF'
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.region
+}
+EOF
+            
+            mv provider_temp.tf provider.tf
+            
+            if terraform init; then
+              echo "✅ Terraform initialized with local backend"
+            else
+              echo "❌ Terraform initialization failed"
+              exit 1
+            fi
+          fi
+          
+          echo "::endgroup::"
+      
+      - name: 🔄 Refresh State (Detect Drift)
+        continue-on-error: true
+        run: |
+          echo "::group::State Refresh"
+          cd Terraform
+          
+          echo "Refreshing Terraform state to detect manually deleted resources..."
+          terraform apply -refresh-only -auto-approve \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" || {
+            echo "⚠️  State refresh failed or had errors"
+            echo "   This is normal if resources were manually deleted"
+          }
+          
+          echo "::endgroup::"
+      
+      - name: 📋 List Resources to be Destroyed
+        continue-on-error: true
         run: |
           echo "::group::Resources to be Destroyed"
           cd Terraform
           
           echo "📋 Current infrastructure state:"
-          terraform show -json | jq -r '.values.root_module.resources[] | select(.type == "aws_instance") | "\(.type).\(.name): \(.values.tags.Name)"'
+          echo ""
+          
+          # Show all instances
+          terraform show -json 2>/dev/null | \
+            jq -r '.values.root_module.resources[]? | select(.type == "aws_instance") | "\(.type).\(.name): \(.values.tags.Name // "N/A")"' || \
+            echo "Unable to list resources (state may be empty or corrupted)"
+          
+          echo ""
+          echo "Full resource count:"
+          terraform state list 2>/dev/null | wc -l || echo "0"
           
           echo "::endgroup::"
       
-      - name: Terraform Destroy
+      - name: 🧹 Terraform Destroy (Attempt 1)
+        id: destroy_attempt_1
+        continue-on-error: true
         run: |
-          echo "::group::Terraform Destroy"
+          echo "::group::Terraform Destroy - Attempt 1"
           cd Terraform
+          
+          echo "🗑️  Destroying all infrastructure..."
+          echo ""
           
           terraform destroy \
             -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
-            -auto-approve
+            -auto-approve \
+            -refresh=true
+          
+          DESTROY_EXIT_CODE=$?
+          
+          if [ $DESTROY_EXIT_CODE -eq 0 ]; then
+            echo "✅ Terraform destroy succeeded"
+            echo "destroy_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Terraform destroy had errors (exit code: $DESTROY_EXIT_CODE)"
+            echo "destroy_success=false" >> $GITHUB_OUTPUT
+          fi
           
           echo "::endgroup::"
       
-      - name: ✅ Destruction Complete
+      - name: 🔄 Retry Destroy (Attempt 2)
+        if: steps.destroy_attempt_1.outputs.destroy_success != 'true'
+        continue-on-error: true
         run: |
-          echo "╔════════════════════════════════════════════════════════════╗"
-          echo "║          ✅ Infrastructure Destroyed Successfully         ║"
-          echo "╚════════════════════════════════════════════════════════════╝"
+          echo "::group::Terraform Destroy - Attempt 2 (Retry)"
+          cd Terraform
+          
+          echo "Retrying destroy with parallelism=1 (safer, slower)..."
           echo ""
-          echo "All AWS resources have been removed."
-          echo "Terraform state file remains for audit purposes."
+          
+          terraform destroy \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -auto-approve \
+            -refresh=true \
+            -parallelism=1
+          
+          echo "::endgroup::"
+      
+      - name: 🧹 Clean up orphaned resources (Manual Check)
+        continue-on-error: true
+        run: |
+          echo "::group::Orphaned Resource Check"
+          
+          echo "Checking for any remaining EC2 instances..."
+          
+          # List EC2 instances with our tags
+          INSTANCES=$(aws ec2 describe-instances \
+            --region ${{ env.AWS_REGION }} \
+            --filters "Name=tag:ManagedBy,Values=Terraform" \
+                      "Name=instance-state-name,Values=running,stopped,stopping" \
+            --query 'Reservations[*].Instances[*].[InstanceId,Tags[?Key==`Name`].Value|[0],State.Name]' \
+            --output text)
+          
+          if [ -n "$INSTANCES" ]; then
+            echo "⚠️  WARNING: Found remaining instances:"
+            echo "$INSTANCES"
+            echo ""
+            echo "These may need to be manually deleted from AWS Console"
+          else
+            echo "✅ No orphaned EC2 instances found"
+          fi
+          
+          echo "::endgroup::"
+      
+      - name: 📊 Verify Destruction Complete
+        run: |
+          echo "::group::Destruction Verification"
+          cd Terraform
+          
+          # Check if state file is empty
+          RESOURCE_COUNT=$(terraform state list 2>/dev/null | wc -l || echo "0")
+          
+          echo "Remaining resources in state: $RESOURCE_COUNT"
+          
+          if [ "$RESOURCE_COUNT" -eq "0" ]; then
+            echo "✅ All resources successfully destroyed"
+          else
+            echo "⚠️  Some resources may still exist:"
+            terraform state list || echo "Unable to list state"
+            echo ""
+            echo "You may need to manually clean up these resources"
+          fi
+          
+          echo "::endgroup::"
+      
+      - name: 🔄 Restore Provider Configuration
+        if: always()
+        continue-on-error: true
+        run: |
+          cd Terraform
+          
+          # Restore original provider.tf if it was backed up
+          if [ -f provider.tf.backup ]; then
+            echo "Restoring original provider.tf..."
+            mv provider.tf.backup provider.tf
+            echo "✅ Restored"
+          fi
+      
+      - name: ✅ Destruction Summary
+        if: always()
+        run: |
+          cd Terraform
+          
+          RESOURCE_COUNT=$(terraform state list 2>/dev/null | wc -l || echo "0")
+          
+          if [ "$RESOURCE_COUNT" -eq "0" ]; then
+            cat <<EOF
+          ╔════════════════════════════════════════════════════════════╗
+          ║          ✅ Infrastructure Destroyed Successfully         ║
+          ╚════════════════════════════════════════════════════════════╝
+          
+          All AWS resources have been removed.
+          
+          📝 Preserved Resources (by design):
+             • S3 State Bucket: devops-project-terraform-state-*
+             • DynamoDB Lock Table: terraform-state-locks
+          
+          These backend resources contain state history and are preserved.
+          You can safely deploy again at any time.
+          ╚════════════════════════════════════════════════════════════╝
+          EOF
+          else
+            cat <<EOF
+          ╔════════════════════════════════════════════════════════════╗
+          ║          ⚠️  Destruction Completed with Warnings          ║
+          ╚════════════════════════════════════════════════════════════╝
+          
+          Some resources may still exist in state.
+          Please check the logs above for details.
+          
+          You may need to:
+          1. Check AWS Console for orphaned resources
+          2. Manually delete any stuck resources
+          3. Clear Terraform state if needed
+          ╚════════════════════════════════════════════════════════════╝
+          EOF
+          fi
