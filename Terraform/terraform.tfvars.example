@@ -1,0 +1,4 @@
+# Terraform variables for local development
+# DO NOT COMMIT THIS FILE - it's in .gitignore
+
+ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2... your-key-here"
