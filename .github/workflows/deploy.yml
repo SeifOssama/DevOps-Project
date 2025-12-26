@@ -232,10 +232,13 @@ jobs:
           else
             echo "📝 Creating key pair: $KEY_NAME"
             # Import the public key from GitHub secrets
+            # AWS requires the public key to be base64-encoded
+            echo "${{ secrets.SSH_PUBLIC_KEY }}" | base64 -w 0 > /tmp/pubkey.b64
             aws ec2 import-key-pair \
               --key-name "$KEY_NAME" \
-              --public-key-material "${{ secrets.SSH_PUBLIC_KEY }}" \
+              --public-key-material fileb:///tmp/pubkey.b64 \
               --region $AWS_REGION
+            rm -f /tmp/pubkey.b64
             
             echo "✅ Key pair created successfully"
           fi
