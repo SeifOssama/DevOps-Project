@@ -838,7 +838,38 @@ jobs:
       - name: 🧹 Terraform Destroy
         run: |
           cd Terraform
-          terraform init
+          
+          # Check if backend exists
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="devops-project-terraform-state-$ACCOUNT_ID"
+          
+          if aws s3 ls "s3://$BUCKET_NAME" 2>/dev/null; then
+            echo "✅ Backend exists, using remote state for cleanup"
+            terraform init
+          else
+            echo "⚠️  Backend doesn't exist, using local state for cleanup"
+            
+            # Create temporary provider.tf without backend
+            cat > provider_temp.tf << 'EOF'
+          terraform {
+            required_providers {
+              aws = {
+                source  = "hashicorp/aws"
+              }
+            }
+          }
+
+          provider "aws" {
+            region = "us-east-1"
+          }
+          EOF
+            
+            # Backup and use temporary provider
+            mv provider.tf provider.tf.backup
+            mv provider_temp.tf provider.tf
+            
+            terraform init
+          fi
           
           # Try to destroy whatever was created
           terraform destroy \
@@ -847,6 +878,11 @@ jobs:
               echo "⚠️  Terraform destroy failed or nothing to destroy"
               echo "   You may need to check AWS Console for orphaned resources"
             }
+          
+          # Restore original provider.tf if it was backed up
+          if [ -f provider.tf.backup ]; then
+            mv provider.tf.backup provider.tf
+          fi
       
       - name: ✅ Cleanup Complete
         run: |
