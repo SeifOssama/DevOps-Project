@@ -186,7 +186,7 @@ jobs:
         run: |
           echo "::group::Terraform Initialization"
           cd Terraform
-          terraform init
+          terraform init -migrate-state -input=false
           echo "::endgroup::"
       
       - name: 🏗️ Phase 1 - Terraform Validate
