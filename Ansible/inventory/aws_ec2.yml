@@ -31,5 +31,7 @@ compose:
   # Set ansible_host to use the public IP for SSH from GitHub Actions
   ansible_host: public_ip_address
   ansible_user: "'ubuntu'"
+  # Explicitly set Python interpreter to suppress discovery warnings
+  ansible_python_interpreter: "'/usr/bin/python3'"
   # Ensure inventory_hostname is set to Name tag for display purposes
   inventory_hostname: tags.Name | default(public_ip_address)

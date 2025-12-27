@@ -11,6 +11,9 @@ env:
   AWS_REGION: us-east-1
   TERRAFORM_VERSION: 1.6.0
   ANSIBLE_VERSION: 2.15.0
+  # Ansible configuration to suppress common warnings
+  ANSIBLE_LOCALHOST_WARNING: "False"
+  ANSIBLE_INVENTORY_UNPARSED_WARNING: "False"
 
 jobs:
   deploy:
@@ -749,11 +752,11 @@ jobs:
           
           echo "Checking Docker containers..."
           ansible tag_Name_monitoring_node -i inventory/aws_ec2.yml \
-            -m shell -a 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"' -u ubuntu
+            -m shell -a 'docker ps' -u ubuntu
           
           echo "Verifying required containers..."
           CONTAINER_CHECK=$(ansible tag_Name_monitoring_node -i inventory/aws_ec2.yml \
-            -m shell -a 'docker ps --format "{{.Names}}"' -u ubuntu -o | grep -E "prometheus|grafana|alertmanager" | wc -l)
+            -m shell -a 'docker ps --filter name=prometheus --filter name=grafana --filter name=alertmanager | tail -n +2 | wc -l' -u ubuntu -o | tail -1)
           
           if [ "$CONTAINER_CHECK" -ge 3 ]; then
             echo "✅ All monitoring containers are running"
