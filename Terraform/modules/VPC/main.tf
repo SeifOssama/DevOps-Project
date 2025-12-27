@@ -7,11 +7,6 @@ resource "aws_vpc" "YAKOUT-VPC" {
   tags = {
     Name = "SEIF-VPC"
   }
-
-  lifecycle {
-    prevent_destroy = true
-    ignore_changes  = [tags_all]
-  }
 }
 
 
