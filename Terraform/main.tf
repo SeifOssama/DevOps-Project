@@ -87,8 +87,8 @@ module "workernode_sg" {
       to_port                      = -1
     }
     ssh = {
-      cidr_ipv4                    = null
-      referenced_security_group_id = module.controlnode_sg.securitygroup_id
+      cidr_ipv4                    = "0.0.0.0/0"
+      referenced_security_group_id = null
       from_port                    = 22
       ip_protocol                  = "tcp"
       to_port                      = 22
