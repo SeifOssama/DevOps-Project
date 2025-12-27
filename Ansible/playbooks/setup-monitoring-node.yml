@@ -149,6 +149,18 @@
                 path: /var/lib/grafana/dashboards
       tags: [monitoring, config]
     
+    - name: Copy Grafana dashboard JSON files
+      copy:
+        src: "../../Monitoring/grafana-dashboards/{{ item }}"
+        dest: /home/ubuntu/monitoring/grafana/dashboards/{{ item }}
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      loop:
+        - docker-container-monitoring.json
+        - node-exporter-full.json
+      tags: [monitoring, config]
+    
     # ============================================
     # Phase 3: Deploy Monitoring Stack
     # ============================================
