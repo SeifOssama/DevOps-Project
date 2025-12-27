@@ -54,6 +54,32 @@ jobs:
           ACCOUNT_ID=$(echo $CALLER_IDENTITY | jq -r '.Account')
           echo "✅ AWS Account: $ACCOUNT_ID"
       
+      - name: 📊 Pre-Destroy EC2 Inventory
+        id: pre_destroy_inventory
+        run: |
+          echo "Recording current EC2 instances before destroy..."
+          echo ""
+          
+          # Get all instances with our project tags
+          INSTANCES=$(aws ec2 describe-instances \
+            --region ${{ env.AWS_REGION }} \
+            --filters "Name=tag:ManagedBy,Values=Terraform" \
+                      "Name=instance-state-name,Values=running,stopped,stopping,pending" \
+            --query 'Reservations[*].Instances[*].[InstanceId,Tags[?Key==`Name`].Value|[0],State.Name]' \
+            --output text)
+          
+          if [ -n "$INSTANCES" ]; then
+            echo "Found instances to destroy:"
+            echo "$INSTANCES"
+            INSTANCE_COUNT=$(echo "$INSTANCES" | wc -l)
+            echo "instance_count=$INSTANCE_COUNT" >> $GITHUB_OUTPUT
+            echo ""
+            echo "Total instances: $INSTANCE_COUNT"
+          else
+            echo "No instances found to destroy"
+            echo "instance_count=0" >> $GITHUB_OUTPUT
+          fi
+      
       - name: 🏗️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -181,31 +207,99 @@ jobs:
           
           echo "::endgroup::"
       
-      - name: 🧹 Clean up orphaned resources (Manual Check)
+      - name: 🔒 Check Termination Protection
         continue-on-error: true
         run: |
-          echo "::group::Orphaned Resource Check"
+          echo "Checking for instances with termination protection..."
           
-          echo "Checking for any remaining EC2 instances..."
-          
-          # List EC2 instances with our tags
-          INSTANCES=$(aws ec2 describe-instances \
+          PROTECTED_INSTANCES=$(aws ec2 describe-instances \
             --region ${{ env.AWS_REGION }} \
             --filters "Name=tag:ManagedBy,Values=Terraform" \
-                      "Name=instance-state-name,Values=running,stopped,stopping" \
-            --query 'Reservations[*].Instances[*].[InstanceId,Tags[?Key==`Name`].Value|[0],State.Name]' \
+                      "Name=instance-state-name,Values=running,stopped,stopping,pending" \
+            --query 'Reservations[*].Instances[*].InstanceId' \
             --output text)
           
-          if [ -n "$INSTANCES" ]; then
-            echo "⚠️  WARNING: Found remaining instances:"
-            echo "$INSTANCES"
-            echo ""
-            echo "These may need to be manually deleted from AWS Console"
+          if [ -n "$PROTECTED_INSTANCES" ]; then
+            echo "Found instances, checking termination protection..."
+            for instance in $PROTECTED_INSTANCES; do
+              PROTECTION=$(aws ec2 describe-instance-attribute \
+                --instance-id $instance \
+                --attribute disableApiTermination \
+                --query 'DisableApiTermination.Value' \
+                --output text 2>/dev/null || echo "false")
+              
+              if [ "$PROTECTION" = "True" ] || [ "$PROTECTION" = "true" ]; then
+                echo "⚠️  WARNING: Instance $instance has termination protection enabled"
+                echo "   You must disable it manually before it can be destroyed"
+              fi
+            done
           else
-            echo "✅ No orphaned EC2 instances found"
+            echo "No instances found to check"
           fi
+      
+      - name: 🔍 Verify All EC2 Instances Terminated
+        id: verify_destruction
+        run: |
+          echo "::group::EC2 Termination Verification"
           
-          echo "::endgroup::"
+          echo "⏳ Waiting 30 seconds for AWS eventual consistency..."
+          sleep 30
+          
+          echo ""
+          echo "Checking for remaining EC2 instances..."
+          
+          # Check multiple tag patterns to catch all instances
+          ALL_INSTANCES=""
+          
+          # Check: Instances with ManagedBy tag (not terminated or terminating)
+          MANAGED_INSTANCES=$(aws ec2 describe-instances \
+            --region ${{ env.AWS_REGION }} \
+            --filters "Name=tag:ManagedBy,Values=Terraform" \
+                      "Name=instance-state-name,Values=running,stopped,stopping,pending,shutting-down" \
+            --query 'Reservations[*].Instances[*].[InstanceId,Tags[?Key==`Name`].Value|[0],State.Name,LaunchTime]' \
+            --output text)
+          
+          ALL_INSTANCES="$MANAGED_INSTANCES"
+          
+          if [ -n "$ALL_INSTANCES" ]; then
+            echo "::error::❌ VERIFICATION FAILED: Found remaining instances after destroy"
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════╗"
+            echo "║           ❌ EC2 INSTANCES STILL EXIST                    ║"
+            echo "╚════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "The following instances are still present in AWS:"
+            echo ""
+            echo "InstanceId          Name                    State           LaunchTime"
+            echo "--------------------------------------------------------------------------------"
+            echo "$ALL_INSTANCES"
+            echo ""
+            INSTANCE_COUNT=$(echo "$ALL_INSTANCES" | wc -l)
+            echo "Total remaining: $INSTANCE_COUNT instance(s)"
+            echo ""
+            echo "🔧 Possible causes:"
+            echo "   1. Terraform destroy failed to remove all resources"
+            echo "   2. Instances were created outside of Terraform"
+            echo "   3. AWS API delays (eventual consistency)"
+            echo "   4. Instance termination protection is enabled"
+            echo ""
+            echo "📝 Next steps:"
+            echo "   1. Check the Terraform destroy logs above"
+            echo "   2. Manually terminate instances from AWS Console if needed"
+            echo "   3. Check for termination protection:"
+            echo "      aws ec2 describe-instance-attribute --instance-id <ID> --attribute disableApiTermination"
+            echo "   4. Re-run this workflow after manual cleanup"
+            echo ""
+            echo "verification_passed=false" >> $GITHUB_OUTPUT
+            echo "::endgroup::"
+            exit 1
+          else
+            echo "✅ SUCCESS: No EC2 instances found"
+            echo ""
+            echo "Verified that all instances have been terminated."
+            echo "verification_passed=true" >> $GITHUB_OUTPUT
+            echo "::endgroup::"
+          fi
       
       - name: 📊 Verify Destruction Complete
         run: |
@@ -247,14 +341,18 @@ jobs:
           cd Terraform
           
           RESOURCE_COUNT=$(terraform state list 2>/dev/null | wc -l || echo "0")
+          VERIFICATION_PASSED="${{ steps.verify_destruction.outputs.verification_passed }}"
           
-          if [ "$RESOURCE_COUNT" -eq "0" ]; then
+          if [ "$RESOURCE_COUNT" -eq "0" ] && [ "$VERIFICATION_PASSED" = "true" ]; then
             cat <<EOF
           ╔════════════════════════════════════════════════════════════╗
           ║          ✅ Infrastructure Destroyed Successfully         ║
           ╚════════════════════════════════════════════════════════════╝
           
-          All AWS resources have been removed.
+          All AWS resources have been removed and verified.
+          
+          ✅ Terraform State: Empty (0 resources)
+          ✅ EC2 Verification: Passed (no instances found)
           
           📝 Preserved Resources (by design):
              • S3 State Bucket: devops-project-terraform-state-*
@@ -267,16 +365,19 @@ jobs:
           else
             cat <<EOF
           ╔════════════════════════════════════════════════════════════╗
-          ║          ⚠️  Destruction Completed with Warnings          ║
+          ║               ❌ Destruction Incomplete                   ║
           ╚════════════════════════════════════════════════════════════╝
           
-          Some resources may still exist in state.
-          Please check the logs above for details.
+          Status:
+          • Terraform State: $RESOURCE_COUNT resources remaining
+          • EC2 Verification: $VERIFICATION_PASSED
           
-          You may need to:
-          1. Check AWS Console for orphaned resources
-          2. Manually delete any stuck resources
-          3. Clear Terraform state if needed
+          ⚠️  Action Required:
+          1. Check the verification logs above for details
+          2. Review AWS Console for orphaned resources
+          3. Manually delete any stuck resources
+          4. Re-run this workflow after cleanup
           ╚════════════════════════════════════════════════════════════╝
           EOF
+            exit 1
           fi
