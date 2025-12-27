@@ -287,6 +287,87 @@ jobs:
           echo "✅ State refresh complete"
           echo "::endgroup::"
       
+      - name: 🔍 Phase 1.5 - Auto-Import Existing Resources
+        continue-on-error: true
+        run: |
+          echo "::group::Checking for Existing Resources"
+          cd Terraform
+          
+          echo "Checking for resources that exist in AWS but not in Terraform state..."
+          echo "This prevents 'already exists' errors during terraform apply."
+          echo ""
+          
+          # Function to check if resource is in state
+          resource_in_state() {
+            terraform state list 2>/dev/null | grep -q "^$1$"
+          }
+          
+          # Function to import resource
+          import_resource() {
+            local resource_address=$1
+            local resource_id=$2
+            local resource_name=$3
+            
+            echo "→ Checking $resource_name..."
+            
+            if resource_in_state "$resource_address"; then
+              echo "  ✅ Already in state: $resource_address"
+            else
+              echo "  📥 Importing: $resource_address → $resource_id"
+              if terraform import "$resource_address" "$resource_id" 2>&1 | grep -q "Import successful"; then
+                echo "  ✅ Imported successfully"
+              else
+                echo "  ⚠️  Import failed (resource may not exist in AWS yet)"
+              fi
+            fi
+          }
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Checking Key Resources..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Import EC2 Key Pair
+          import_resource "aws_key_pair.deployer" "deployer-key" "EC2 Key Pair"
+          
+          # Import IAM Role for Control Node
+          import_resource "module.controlnode.aws_iam_role.control_node_role" "monitoring-node-role" "IAM Role (Control Node)"
+          
+          # Import IAM Instance Profile for Control Node
+          import_resource "module.controlnode.aws_iam_instance_profile.control_node_profile" "monitoring-node-profile" "IAM Instance Profile (Control Node)"
+          
+          # Import IAM Role Policy Attachment (if exists)
+          if aws iam list-attached-role-policies --role-name monitoring-node-role 2>/dev/null | grep -q "AmazonSSMManagedInstanceCore"; then
+            import_resource "module.controlnode.aws_iam_role_policy_attachment.ssm_policy" "monitoring-node-role/arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore" "IAM Policy Attachment (SSM)"
+          fi
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Checking Worker Node Resources..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Check for worker node IAM resources (they may not exist yet)
+          if aws iam get-role --role-name worker-node-role 2>/dev/null; then
+            import_resource "module.workernode.aws_iam_role.worker_role" "worker-node-role" "IAM Role (Worker Node)"
+          else
+            echo "ℹ️  Worker node IAM role doesn't exist yet (will be created)"
+          fi
+          
+          if aws iam get-instance-profile --instance-profile-name worker-node-profile 2>/dev/null; then
+            import_resource "module.workernode.aws_iam_instance_profile.worker_profile" "worker-node-profile" "IAM Instance Profile (Worker Node)"
+          else
+            echo "ℹ️  Worker node instance profile doesn't exist yet (will be created)"
+          fi
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Auto-Import Complete!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Current resources in state:"
+          terraform state list || echo "No resources in state yet"
+          echo ""
+          echo "::endgroup::"
+      
       - name: 🏗️ Phase 1 - Terraform Plan
         run: |
           echo "::group::Terraform Plan"
