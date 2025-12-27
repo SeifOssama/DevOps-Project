@@ -545,16 +545,35 @@ jobs:
           echo "Testing AWS EC2 dynamic inventory plugin..."
           echo ""
           
-          # Test 1: ansible-inventory --list
+          # Test 1: ansible-inventory --list (comprehensive inventory data)
           echo "1️⃣ Testing ansible-inventory --list..."
           if ansible-inventory -i inventory/aws_ec2.yml --list > /tmp/inventory_list.json; then
             echo "✅ ansible-inventory --list executed successfully"
+            
+            # Display the full inventory JSON for debugging
+            echo ""
+            echo "📋 Full Inventory Output:"
+            cat /tmp/inventory_list.json | jq '.'
+            echo ""
             
             # Check if output contains aws_ec2 group
             if cat /tmp/inventory_list.json | jq -e '.aws_ec2' > /dev/null 2>&1; then
               echo "✅ Found aws_ec2 group in inventory"
             else
               echo "⚠️  Warning: aws_ec2 group not found in inventory (no instances may be running yet)"
+            fi
+            
+            # Check for custom groups (webservers, monitoring)
+            if cat /tmp/inventory_list.json | jq -e '.webservers' > /dev/null 2>&1; then
+              echo "✅ Found webservers group in inventory"
+            else
+              echo "⚠️  Warning: webservers group not found in inventory"
+            fi
+            
+            if cat /tmp/inventory_list.json | jq -e '.monitoring' > /dev/null 2>&1; then
+              echo "✅ Found monitoring group in inventory"
+            else
+              echo "⚠️  Warning: monitoring group not found in inventory"
             fi
           else
             echo "❌ ansible-inventory --list failed"
