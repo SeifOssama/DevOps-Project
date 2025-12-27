@@ -7,12 +7,17 @@ terraform {
   }
 
   # Remote State Backend Configuration
+  # Backend resources (S3 bucket & DynamoDB table) are created manually
+  # Configuration values are passed at runtime via GitHub Actions secrets
   backend "s3" {
-    bucket         = "devops-project-terraform-state-724772082485"
-    key            = "devops-project/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-state-locks"
-    encrypt        = true
+    # These values are configured via -backend-config flags during terraform init:
+    #   -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}"
+    #   -backend-config="dynamodb_table=${{ secrets.TF_BACKEND_DYNAMODB_TABLE }}"
+    #   -backend-config="region=${{ secrets.TF_BACKEND_REGION }}"
+    
+    # Static values defined here:
+    key     = "devops-project/terraform.tfstate"
+    encrypt = true
   }
 }
 

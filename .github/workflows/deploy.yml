@@ -219,7 +219,19 @@ jobs:
         run: |
           echo "::group::Terraform Initialization"
           cd Terraform
-          terraform init -migrate-state -input=false
+          
+          echo "Initializing Terraform with remote backend..."
+          echo "Backend: s3://${{ secrets.TF_BACKEND_BUCKET }}"
+          echo "Locking: DynamoDB table ${{ secrets.TF_BACKEND_DYNAMODB_TABLE }}"
+          echo ""
+          
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_BACKEND_DYNAMODB_TABLE }}" \
+            -backend-config="region=${{ secrets.TF_BACKEND_REGION }}" \
+            -input=false
+          
+          echo "✅ Terraform initialized successfully"
           echo "::endgroup::"
       
       - name: 🏗️ Phase 1 - Terraform Validate
@@ -248,6 +260,31 @@ jobs:
             echo "❌ Terraform validation failed"
             exit 1
           fi
+          echo "::endgroup::"
+      
+      - name: 🔄 Phase 1 - Refresh State (Detect Drift)
+        run: |
+          echo "::group::State Refresh"
+          cd Terraform
+          
+          echo "Refreshing Terraform state to detect any manual changes or drift..."
+          echo "This will update the state to match the real-world infrastructure."
+          echo ""
+          
+          terraform apply -refresh-only \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -auto-approve || {
+            echo "⚠️  State refresh encountered issues"
+            echo "   This may indicate:"
+            echo "   - Resources were manually deleted from AWS"
+            echo "   - References to non-existent resources in state"
+            echo "   - Permission issues"
+            echo ""
+            echo "   Terraform will attempt to reconcile during plan/apply"
+          }
+          
+          echo ""
+          echo "✅ State refresh complete"
           echo "::endgroup::"
       
       - name: 🏗️ Phase 1 - Terraform Plan
@@ -996,13 +1033,13 @@ jobs:
           echo "   Infrastructure is ready for use."
   
   # ============================================
-  # CLEANUP JOB: Runs only on failure
+  # FAILURE NOTIFICATION: Runs only on failure
   # ============================================
-  cleanup_on_failure:
+  notify_failure:
     runs-on: ubuntu-latest
     needs: deploy
     if: failure()
-    name: Cleanup Failed Deployment
+    name: Deployment Failure - Manual Action Required
     
     steps:
       - name: 📋 Checkout Code
@@ -1018,84 +1055,151 @@ jobs:
       - name: 🏗️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
       
-      - name: ⚠️ Cleanup Warning
-        run: |
-          echo "╔════════════════════════════════════════════════════════════╗"
-          echo "║           ⚠️  DEPLOYMENT FAILED - CLEANING UP  ⚠️          ║"
-          echo "╚════════════════════════════════════════════════════════════╝"
-          echo ""
-          echo "The deployment failed. Automatically destroying any created resources..."
-          echo "This prevents orphaned resources and AWS charges."
-      
-      - name: 🔓 Clear Stuck Locks
+      - name: 📊 Assess Current State
         continue-on-error: true
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          BUCKET_NAME="devops-project-terraform-state-$ACCOUNT_ID"
-          
-          echo "Clearing any stuck locks..."
-          aws dynamodb delete-item \
-            --table-name terraform-state-locks \
-            --key "{\"LockID\": {\"S\": \"$BUCKET_NAME/devops-project/terraform.tfstate\"}}" \
-            2>/dev/null || echo "No locks to clear"
-      
-      - name: 🧹 Terraform Destroy
-        run: |
+          echo "::group::Current Infrastructure State"
           cd Terraform
           
-          # Check if backend exists
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          BUCKET_NAME="devops-project-terraform-state-$ACCOUNT_ID"
+          echo "Attempting to check current state..."
           
-          if aws s3 ls "s3://$BUCKET_NAME" 2>/dev/null; then
-            echo "✅ Backend exists, using remote state for cleanup"
-            terraform init
+          # Try to initialize
+          if terraform init \
+            -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_BACKEND_DYNAMODB_TABLE }}" \
+            -backend-config="region=${{ secrets.TF_BACKEND_REGION }}"; then
+            
+            echo ""
+            echo "📋 Resources currently in Terraform state:"
+            terraform state list || echo "No resources in state or state is corrupted"
+            
+            echo ""
+            echo "📋 Resource count:"
+            RESOURCE_COUNT=$(terraform state list 2>/dev/null | wc -l || echo "0")
+            echo "   $RESOURCE_COUNT resources tracked"
           else
-            echo "⚠️  Backend doesn't exist, using local state for cleanup"
-            
-            # Create temporary provider.tf without backend
-            cat > provider_temp.tf << 'EOF'
-          terraform {
-            required_providers {
-              aws = {
-                source  = "hashicorp/aws"
-              }
-            }
-          }
-
-          provider "aws" {
-            region = "us-east-1"
-          }
-          EOF
-            
-            # Backup and use temporary provider
-            mv provider.tf provider.tf.backup
-            mv provider_temp.tf provider.tf
-            
-            terraform init
+            echo "⚠️  Cannot initialize Terraform to check state"
+            echo "   This may indicate the backend doesn't exist or is misconfigured"
           fi
           
-          # Try to destroy whatever was created
-          terraform destroy \
-            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
-            -auto-approve || {
-              echo "⚠️  Terraform destroy failed or nothing to destroy"
-              echo "   You may need to check AWS Console for orphaned resources"
-            }
-          
-          # Restore original provider.tf if it was backed up
-          if [ -f provider.tf.backup ]; then
-            mv provider.tf.backup provider.tf
-          fi
-      
-      - name: ✅ Cleanup Complete
-        run: |
-          echo "╔════════════════════════════════════════════════════════════╗"
-          echo "║              ✅ CLEANUP COMPLETED                          ║"
-          echo "╚════════════════════════════════════════════════════════════╝"
           echo ""
-          echo "Any partially created infrastructure has been destroyed."
-          echo "You can safely re-run the deployment workflow."
+          echo "📋 EC2 Instances in AWS (tagged ManagedBy=Terraform):"
+          aws ec2 describe-instances \
+            --region ${{ env.AWS_REGION }} \
+            --filters "Name=tag:ManagedBy,Values=Terraform" \
+                      "Name=instance-state-name,Values=running,stopped,stopping,pending" \
+            --query 'Reservations[*].Instances[*].[InstanceId,Tags[?Key==`Name`].Value|[0],State.Name,PublicIpAddress]' \
+            --output table || echo "No instances found or connection issue"
+          
+          echo "::endgroup::"
+      
+      - name: ⚠️ Failure Instructions
+        run: |
+          cat <<'EOF'
+          ╔════════════════════════════════════════════════════════════╗
+          ║        ⚠️  DEPLOYMENT FAILED - MANUAL ACTION REQUIRED     ║
+          ╚════════════════════════════════════════════════════════════╝
+          
+          🚨 The deployment has failed. Partial infrastructure may exist in AWS.
+          
+          ⚠️  IMPORTANT: Automatic cleanup has been DISABLED to prevent:
+             • State file corruption
+             • Orphaned "zombie" resources
+             • Cascading failures
+          
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          📝 RECOMMENDED ACTIONS:
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          
+          1️⃣ REVIEW THE FAILURE
+             Review the logs above to identify what caused the failure:
+             • Quota limits exceeded?
+             • Permission issues?
+             • Invalid configuration?
+             • Network/timeout issues?
+          
+          2️⃣ CHECK CURRENT STATE
+             Check what resources currently exist:
+             
+             In your local terminal:
+             $ cd Terraform
+             $ terraform init \
+                 -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
+                 -backend-config="dynamodb_table=${{ secrets.TF_BACKEND_DYNAMODB_TABLE }}" \
+                 -backend-config="region=${{ secrets.TF_BACKEND_REGION }}"
+             $ terraform state list
+             
+             Or check AWS Console manually.
+          
+          3️⃣ CHOOSE A RECOVERY PATH
+          
+             📌 OPTION A - FIX AND RETRY (Recommended)
+             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+             If the failure was due to a fixable issue (typo, permission, etc.):
+             
+             1. Fix the underlying issue in your code or configuration
+             2. Commit and push the fix
+             3. Re-run this "Deploy Infrastructure & Services" workflow
+             4. Terraform will pick up where it left off using the state file
+             
+             This is the SAFEST option.
+          
+             📌 OPTION B - CLEAN DESTROY
+             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+             If you want to completely tear down and start fresh:
+             
+             1. Run the "Destroy All Infrastructure" workflow
+             2. It includes proper state refresh and retry logic
+             3. Wait for successful completion
+             4. Fix the issue that caused the failure
+             5. Re-run deployment
+             
+             Note: The destroy workflow preserves the S3 state bucket.
+          
+             📌 OPTION C - MANUAL CLEANUP
+             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+             For advanced users who need fine-grained control:
+             
+             1. Identify orphaned resources:
+                $ bash scripts/list-orphaned-resources.sh
+             
+             2. For resources in AWS but NOT in state:
+                $ terraform import <resource_type>.<name> <aws_id>
+                Example: terraform import aws_instance.web i-1234567890abcdef0
+             
+             3. For resources in state but NOT in AWS:
+                $ terraform state rm <resource_type>.<name>
+                Example: terraform state rm aws_instance.web
+             
+             4. Review our state management guide:
+                See: scripts/state-management-guide.md
+          
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          🔗 HELPFUL RESOURCES:
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          
+          • State Management Guide: scripts/state-management-guide.md
+          • List Orphaned Resources: scripts/list-orphaned-resources.sh
+          • Terraform State Commands: https://developer.hashicorp.com/terraform/cli/commands/state
+          
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          ⚠️  WHY NO AUTO-CLEANUP?
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          
+          Running terraform destroy immediately after a failure can:
+          • Corrupt the state file if destroy itself fails
+          • Leave "zombie" resources (in AWS but not in state)
+          • Make recovery harder by destroying diagnostic information
+          • Prevent proper root cause analysis
+          
+          Manual intervention ensures you understand what happened and
+          can recover properly without making the situation worse.
+          
+          ╔════════════════════════════════════════════════════════════╗
+          ║  Need Help? Check the workflow logs and state management  ║
+          ║  guide above, or review the Terraform documentation.      ║
+          ╚════════════════════════════════════════════════════════════╝
+          EOF

@@ -81,41 +81,22 @@ jobs:
           echo "::group::Terraform Initialization"
           cd Terraform
           
+          echo "Initializing Terraform with remote backend..."
+          echo "Backend: s3://${{ secrets.TF_BACKEND_BUCKET }}"
+          
           # Try to initialize with remote backend
-          if terraform init; then
+          if terraform init \
+            -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_BACKEND_DYNAMODB_TABLE }}" \
+            -backend-config="region=${{ secrets.TF_BACKEND_REGION }}"; then
             echo "✅ Terraform initialized with remote backend"
           else
-            echo "⚠️  Remote backend initialization failed, trying local backend..."
-            
-            # Backup backend configuration
-            if [ -f "provider.tf" ]; then
-              mv provider.tf provider.tf.backup
-            fi
-            
-            # Create temporary provider without backend
-            cat > provider_temp.tf <<'EOF'
-          terraform {
-            required_providers {
-              aws = {
-                source  = "hashicorp/aws"
-                version = "~> 5.0"
-              }
-            }
-          }
-
-          provider "aws" {
-            region = var.region
-          }
-          EOF
-            
-            mv provider_temp.tf provider.tf
-            
-            if terraform init; then
-              echo "✅ Terraform initialized with local backend"
-            else
-              echo "❌ Terraform initialization failed"
-              exit 1
-            fi
+            echo "⚠️  Remote backend initialization failed"
+            echo "   This may indicate the backend was already destroyed"
+            echo "   or never existed. Cannot proceed with destroy."
+            echo ""
+            echo "If you need to clean up local resources, use AWS Console."
+            exit 1
           fi
           
           echo "::endgroup::"

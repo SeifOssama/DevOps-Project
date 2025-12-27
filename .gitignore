@@ -3,4 +3,9 @@ terraform/.terraform/
 
 deploy.sh
 terraform.tfvars
+terraform.tfvars.example
+
+# Terraform state files
+terraform.tfstate
+terraform.tfstate.backup
 *.tfvars
