@@ -61,11 +61,9 @@
 
     - name: Ensure Apache2 is running and accessible
       uri:
-        url: "http://{{ ansible_default_ipv4.address }}"
+        url: "http://localhost"
         method: GET
         status_code: 200
-      delegate_to: localhost
-      become: false
       tags: [validation, web]
 
   handlers:
