@@ -6,6 +6,13 @@
   
   tasks:
     # ============================================
+    # Reset connection to ensure docker group membership is active
+    # ============================================
+    - name: Reset connection to apply docker group permissions
+      meta: reset_connection
+      tags: [monitoring, setup]
+    
+    # ============================================
     # Docker is already installed via install-docker.yml
     # Starting directly with monitoring directory structure
     # ============================================

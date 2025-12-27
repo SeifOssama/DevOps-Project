@@ -7,11 +7,11 @@ regions:
 filters:
   instance-state-name: running
 
-# Use DNS name or private IP as hostname (NOT the literal string)
-# This ensures each instance gets a unique hostname
+# Use Name tag as hostname for better readability in output
+# Falls back to DNS name if Name tag is not set
 hostnames:
+  - tag:Name
   - dns-name
-  - private-ip-address
 
 # Use keyed_groups to create groups based on tags
 keyed_groups:
@@ -31,3 +31,5 @@ compose:
   # Set ansible_host to use the public IP for SSH from GitHub Actions
   ansible_host: public_ip_address
   ansible_user: "'ubuntu'"
+  # Ensure inventory_hostname is set to Name tag for display purposes
+  inventory_hostname: tags.Name | default(public_ip_address)

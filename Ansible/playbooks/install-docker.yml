@@ -100,6 +100,10 @@
         append: yes
       tags: [docker, permissions]
     
+    - name: Reset SSH connection to apply docker group membership
+      meta: reset_connection
+      tags: [docker, permissions]
+    
     # Note: newgrp docker effect happens on next SSH login
     # The workflow already uses reset_connection in subsequent playbooks
     
