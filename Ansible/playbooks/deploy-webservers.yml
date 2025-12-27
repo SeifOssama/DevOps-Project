@@ -4,7 +4,7 @@
   become: true
   gather_facts: true
   vars_files:
-    - ../group_vars/websevers.yml
+    - ../group_vars/webservers.yml
   tasks:
     - name: Update system packages
       apt:
