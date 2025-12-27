@@ -889,7 +889,7 @@ jobs:
           
           echo "Checking exporter containers on webservers..."
           ansible tag_Name_webserver* -i inventory/aws_ec2.yml \
-            -m shell -a 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"' -u ubuntu
+            -m shell -a 'docker ps --format "table {{ "{{" }}.Names{{ "}}" }}\\t{{ "{{" }}.Status{{ "}}" }}\\t{{ "{{" }}.Ports{{ "}}" }}"' -u ubuntu
           
           echo "Verifying node-exporter is running..."
           ansible tag_Name_webserver* -i inventory/aws_ec2.yml \
