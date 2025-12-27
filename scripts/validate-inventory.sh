@@ -10,10 +10,36 @@ echo ""
 echo "📥 Fetching inventory data..."
 INVENTORY_JSON=$(ansible-inventory -i inventory/aws_ec2.yml --list)
 
-# Debug: Show raw inventory structure
+# Debug: Show ALL hosts first
 echo ""
+echo "🔍 Debug: ALL Hosts in Inventory (ansible all --list-hosts):"
+ansible all -i inventory/aws_ec2.yml --list-hosts
+
+# Debug: Show detailed host information with tags
+echo ""
+echo "🔍 Debug: Detailed Host Information:"
+ALL_HOSTS=$(echo "$INVENTORY_JSON" | jq -r '._meta.hostvars | keys[]')
+for host in $ALL_HOSTS; do
+  echo "  Host: $host"
+  NAME_TAG=$(echo "$INVENTORY_JSON" | jq -r "._meta.hostvars[\"$host\"].tags.Name // \"NO_TAG\"")
+  ANSIBLE_HOST=$(echo "$INVENTORY_JSON" | jq -r "._meta.hostvars[\"$host\"].ansible_host // \"NO_IP\"")
+  echo "    - Name Tag: $NAME_TAG"
+  echo "    - ansible_host: $ANSIBLE_HOST"
+  echo "    - All tags: $(echo "$INVENTORY_JSON" | jq -c "._meta.hostvars[\"$host\"].tags // {}")"
+  echo ""
+done
+
+# Debug: Show raw inventory structure
 echo "🔍 Debug: Inventory Groups Found:"
 echo "$INVENTORY_JSON" | jq -r 'keys[] | select(. != "_meta")' | sort
+
+# Debug: Show which hosts are in which groups
+echo ""
+echo "🔍 Debug: Group Membership:"
+for group in $(echo "$INVENTORY_JSON" | jq -r 'keys[] | select(. != "_meta" and . != "all")' | sort); do
+  echo "  Group '$group':"
+  echo "$INVENTORY_JSON" | jq -r ".${group}.hosts[]" 2>/dev/null | sed 's/^/    - /' || echo "    (no hosts)"
+done
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -38,9 +64,12 @@ if [ "$MONITORING_COUNT" -lt 1 ]; then
   exit 1
 fi
 
-# Show monitoring hosts
+# Show monitoring hosts with IPs
 echo "   Hosts:"
-echo "$INVENTORY_JSON" | jq -r '.monitoring.hosts[]' | sed 's/^/      - /'
+for host in $(echo "$INVENTORY_JSON" | jq -r '.monitoring.hosts[]'); do
+  ip=$(echo "$INVENTORY_JSON" | jq -r "._meta.hostvars[\"$host\"].ansible_host // \"NO_IP\"")
+  echo "      - $host (IP: $ip)"
+done
 
 echo "✅ PASS: Monitoring group validated"
 
@@ -67,9 +96,12 @@ if [ "$WEBSERVER_COUNT" -ne 2 ]; then
   exit 1
 fi
 
-# Show webserver hosts
+# Show webserver hosts with IPs
 echo "   Hosts:"
-echo "$INVENTORY_JSON" | jq -r '.webservers.hosts[]' | sed 's/^/      - /'
+for host in $(echo "$INVENTORY_JSON" | jq -r '.webservers.hosts[]'); do
+  ip=$(echo "$INVENTORY_JSON" | jq -r "._meta.hostvars[\"$host\"].ansible_host // \"NO_IP\"")
+  echo "      - $host (IP: $ip)"
+done
 
 echo "✅ PASS: Webservers group validated"
 

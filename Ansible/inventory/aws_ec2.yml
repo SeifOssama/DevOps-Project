@@ -11,9 +11,17 @@ filters:
 hostnames:
   - public-ip-address
 
-# Create groups based on instance tags
+# Use keyed_groups to create groups based on tags
+keyed_groups:
+  # This creates a group for each unique Name tag value
+  # e.g., tag_Name_webserver0, tag_Name_webserver1, tag_Name_monitoring_node
+  - key: tags.Name
+    prefix: tag_Name
+    separator: "_"
+
+# Create custom groups based on instance tags
 groups:
-  webservers: "tags.Name is defined and 'webserver' in tags.Name"
+  webservers: "tags.Name is defined and ('webserver0' in tags.Name or 'webserver1' in tags.Name or tags.Name.startswith('webserver'))"
   monitoring: "tags.Name is defined and tags.Name == 'monitoring-node'"
 
 # Compose variables for Ansible
