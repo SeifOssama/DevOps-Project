@@ -7,9 +7,11 @@ regions:
 filters:
   instance-state-name: running
 
-# Use public IP for SSH connectivity from GitHub Actions
+# Use DNS name or private IP as hostname (NOT the literal string)
+# This ensures each instance gets a unique hostname
 hostnames:
-  - public-ip-address
+  - dns-name
+  - private-ip-address
 
 # Use keyed_groups to create groups based on tags
 keyed_groups:
@@ -26,5 +28,6 @@ groups:
 
 # Compose variables for Ansible
 compose:
+  # Set ansible_host to use the public IP for SSH from GitHub Actions
   ansible_host: public_ip_address
   ansible_user: ubuntu
