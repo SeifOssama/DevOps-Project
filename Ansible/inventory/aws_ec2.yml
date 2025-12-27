@@ -30,4 +30,4 @@ groups:
 compose:
   # Set ansible_host to use the public IP for SSH from GitHub Actions
   ansible_host: public_ip_address
-  ansible_user: ubuntu
+  ansible_user: "'ubuntu'"
