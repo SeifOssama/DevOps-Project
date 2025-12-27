@@ -1,4 +1,9 @@
 route:
-  receiver: 'email'
+  receiver: 'default'
   repeat_interval: 1h
   group_by: [alertname]
+
+receivers:
+  - name: 'default'
+    # Default receiver - alerts are logged but not sent anywhere
+    # Configure email, Slack, PagerDuty, etc. as needed

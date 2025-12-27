@@ -171,6 +171,21 @@
         - 9090  # Prometheus
         - 3000  # Grafana
         - 9093  # Alertmanager
+      register: port_check
+      failed_when: false
+      tags: [monitoring, deploy, validation]
+    
+    - name: Check container status if ports not ready
+      shell: docker ps -a --filter name=alertmanager --filter name=prometheus --filter name=grafana
+      become_user: ubuntu
+      when: port_check is failed
+      tags: [monitoring, deploy, validation]
+    
+    - name: Show container logs if Alertmanager failed
+      shell: docker logs alertmanager
+      become_user: ubuntu
+      when: port_check is failed
+      ignore_errors: yes
       tags: [monitoring, deploy, validation]
   
   handlers:
