@@ -15,8 +15,8 @@ hostnames:
 
 # Create groups based on instance tags
 groups:
-  webservers: "'webserver' in ec2_tags.Name"
-  monitoring: "ec2_tags.Name == 'monitoring-node'"
+  webservers: "'webserver' in tags.Name"
+  monitoring: "tags.Name == 'monitoring-node'"
 
 # Compose variables for Ansible
 compose:

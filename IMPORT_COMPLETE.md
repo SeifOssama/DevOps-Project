@@ -1,114 +1,45 @@
-# ✅ Resource Import Complete!
+# Quick Import - IAM Instance Profile
 
-All existing resources have been successfully imported into Terraform state.
+The IAM instance profile also existed from previous runs.
 
 ## What Was Imported
 
-✅ **EC2 Key Pair**
-- Resource: `aws_key_pair.deployer`
-- AWS Name: `deployer-key`
+✅ **IAM Instance Profile**
+- Resource: `module.controlnode.aws_iam_instance_profile.control_node_profile`
+- AWS Name: `monitoring-node-profile`
 - Status: Successfully imported
 
-✅ **IAM Role**
-- Resource: `module.controlnode.aws_iam_role.control_node_role`
-- AWS Name: `monitoring-node-role`
-- Status: Successfully imported
+## Complete List of Imported Resources
 
-⚠️ **IAM Policy Attachment**
-- Status: Import failed (resource may not exist as separate entity or is inline)
-- Note: This is OK - Terraform will manage it going forward
-
-## What This Means
-
-Your existing resources are now managed by Terraform! This means:
-
-1. **No resource conflicts** - Terraform knows about them
-2. **State is accurate** - No more "already exists" errors
-3. **Can be updated** - Terraform can modify them in future deployments
-4. **Won't be recreated** - They'll stay as-is unless you change the config
-
----
+1. ✅ `aws_key_pair.deployer` → `deployer-key`
+2. ✅ `module.controlnode.aws_iam_role.control_node_role` → `monitoring-node-role`
+3. ✅ `module.controlnode.aws_iam_instance_profile.control_node_profile` → `monitoring-node-profile`
 
 ## Next Steps
 
-### Option 1: Run Workflow Now (Recommended)
+**Re-run the GitHub Actions workflow** - Should work now!
 
-Re-run the "Deploy Infrastructure & Services" workflow in GitHub Actions.
+If you get another "already exists" error:
+1. Note the resource name from the error
+2. Run: `terraform import <resource_address> <resource_name>`
+3. Re-run the workflow
 
-**Expected behavior**:
-- ✅ No more "already exists" errors for key pair and IAM role
-- ✅ Terraform will create new resources (VPC, EC2 instances, etc.)
-- ✅ Imported resources will be left unchanged
+## Quick Import Commands
 
----
-
-### Option 2: Test Locally First (Optional)
-
-Run terraform plan to see what will be created:
+If you need to import more resources:
 
 ```powershell
 cd Terraform
 
-# If you have SSH public key in default location
-$sshKey = Get-Content $env:USERPROFILE\.ssh\id_rsa.pub -Raw
+# IAM instance profile (already done)
+terraform import module.controlnode.aws_iam_instance_profile.control_node_profile monitoring-node-profile
 
-# Run plan
-terraform plan -var="ssh_public_key=$sshKey"
+# If worker node resources exist:
+terraform import module.workernode[0].aws_iam_role.worker_role worker-node-role
+terraform import module.workernode[0].aws_iam_instance_profile.worker_profile worker-node-profile
+
+# Verify state
+terraform state list
 ```
 
-**What to expect in the plan**:
-- `aws_key_pair.deployer` - No changes (unchanged)
-- `module.controlnode.aws_iam_role.control_node_role` - No changes (unchanged)
-- VPC, subnets, security groups - Will be created (new)
-- EC2 instances - Will be created (new)
-
----
-
-## Important Notes
-
-📝 **About IAM Policy Attachment**
-
-The policy attachment import failed, which is normal if:
-- The policy is managed inline in the role
-- Or Terraform will create it on first apply
-
-This will be handled automatically on the next terraform apply.
-
-📝 **State File Location**
-
-Your imported resources are now in:
-- S3: `s3://devops-project-terraform-state-724772082485/devops-project/terraform.tfstate`
-- You can verify by checking the S3 bucket
-
----
-
-## Troubleshooting
-
-If the workflow still fails with "already exists":
-
-1. **Check what's in state**:
-   ```powershell
-   cd Terraform
-   terraform state list
-   ```
-
-2. **Verify resources match**:
-   ```powershell
-   # Show imported key pair
-   terraform state show aws_key_pair.deployer
-   
-   # Show imported IAM role
-   terraform state show module.controlnode.aws_iam_role.control_node_role
-   ```
-
-3. **If mismatch found**, remove and re-import:
-   ```powershell
-   terraform state rm <resource_address>
-   terraform import <resource_address> <resource_id>
-   ```
-
----
-
-**You're ready to deploy!** 🚀
-
-Run the GitHub Actions workflow and watch it succeed this time.
+The workflow should succeed now with these 3 resources imported!
