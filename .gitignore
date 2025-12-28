@@ -9,3 +9,7 @@ terraform.tfvars.example
 terraform.tfstate
 terraform.tfstate.backup
 *.tfvars
+
+# Ignore all markdown files except README.md
+*.md
+!README.md
